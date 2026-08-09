@@ -18,6 +18,15 @@ let selectedClassLabel = null;
 
 export function initializeResultView(domElements) {
   elements = domElements;
+  const optionalElements = {
+    metricOopUnit: "#metric-oop-unit",
+    metricDealsLabel: "#metric-deals-label",
+    metricDealsUnit: "#metric-deals-unit",
+    metricIterationsLabel: "#metric-iterations-label",
+  };
+  for (const [key, selector] of Object.entries(optionalElements)) {
+    if (!elements[key]) elements[key] = globalThis.document?.querySelector?.(selector) ?? null;
+  }
 }
 
 export function clearNodeSelection() {
