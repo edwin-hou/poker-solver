@@ -2,11 +2,11 @@
             <div class="results-placeholder" id="results-placeholder">
               <div class="placeholder-orbit"><span></span><span></span><span></span></div>
               <h3>Your strategy matrix will appear here</h3>
-              <p>Choose a starting street, configure the ranges and betting tree, then run CFR+.</p>
+              <p>Select a preset or configure a spot. Preflop lookup charts are instant; CFR+ modes run locally in the browser.</p>
               <div class="placeholder-facts">
-                <div><strong>Preflop–river</strong><span>street selector</span></div>
+                <div><strong>Preflop</strong><span>lookup + push/fold</span></div>
                 <div><strong>1,326 combos</strong><span>exact card removal</span></div>
-                <div><strong>CFR+</strong><span>best-response analysis</span></div>
+                <div><strong>Postflop</strong><span>CFR+ study trees</span></div>
               </div>
             </div>
 
@@ -14,7 +14,7 @@
               <div class="solver-loader">
                 <div class="loader-ring"></div>
                 <div>
-                  <span class="eyebrow">CFR+ training</span>
+                  <span class="eyebrow">Poker Solver</span>
                   <h3 id="progress-title">Building game tree…</h3>
                   <p id="progress-detail">Expanding two-card combinations and sampling public runouts.</p>
                 </div>
@@ -26,19 +26,13 @@
             <div class="results-view" id="results-view" hidden>
               <div class="study-header">
                 <div class="result-header-copy">
-                  <span class="street-badge" id="result-street">FLOP</span>
-                  <div><span class="eyebrow">Solved strategy</span><h3 id="result-board">—</h3></div>
+                  <span class="street-badge" id="result-street">PREFLOP</span>
+                  <div><span class="eyebrow">Strategy</span><h3 id="result-board">—</h3></div>
                 </div>
                 <div class="result-actions">
                   <button class="icon-button" id="export-button" title="Download solution JSON">↓ Export</button>
-                  <button class="icon-button" id="resolve-button" title="Run the current configuration again">↻ Re-solve</button>
+                  <button class="icon-button" id="resolve-button" title="Run the current configuration again">↻ Re-run</button>
                 </div>
-              </div>
-
-              <div class="study-nav" aria-label="Solution sections">
-                <button type="button" class="active">Strategy</button>
-                <span>Range matrix</span>
-                <span>Combo details</span>
               </div>
 
               <div class="metric-grid compact-metrics">
@@ -50,15 +44,15 @@
                 <article class="metric-card">
                   <span id="metric-oop-label">OOP EV</span>
                   <strong id="metric-oop-ev">—</strong>
-                  <small>chips / hand</small>
+                  <small id="metric-oop-unit">chips / hand</small>
                 </article>
                 <article class="metric-card">
-                  <span>Compatible deals</span>
+                  <span id="metric-deals-label">Compatible deals</span>
                   <strong id="metric-deals">—</strong>
-                  <small>weighted chance mass</small>
+                  <small id="metric-deals-unit">weighted chance mass</small>
                 </article>
                 <article class="metric-card">
-                  <span>Iterations</span>
+                  <span id="metric-iterations-label">Iterations</span>
                   <strong id="metric-iterations">—</strong>
                   <small id="metric-runtime">—</small>
                 </article>
@@ -66,7 +60,7 @@
 
               <div class="node-toolbar wizard-node-toolbar">
                 <div><label for="node-select">Decision node</label><select id="node-select"></select></div>
-                <div class="range-side" id="range-side">OOP range</div>
+                <div class="range-side" id="range-side">Hero range</div>
               </div>
               <div class="action-legend" id="action-legend"></div>
 
@@ -88,10 +82,9 @@
 
               <div class="result-footnote">
                 <strong>Accuracy:</strong>
-                <span id="accuracy-note">River uses exact best responses; earlier streets use Monte Carlo runout and best-response estimates.</span>
+                <span id="accuracy-note">Lookup charts are approximate; river exploitability is exact for its configured tree.</span>
               </div>
             </div>
           </section>
         </div>
       </section>
-
