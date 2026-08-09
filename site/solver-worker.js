@@ -1,4 +1,5 @@
-import { CancelledSolveError, solveHoldemRiver } from "../src/solver.js";
+import { CancelledSolveError } from "../src/solver-support.js";
+import { solvePokerSpot } from "../src/solve.js";
 
 let activeJob = 0;
 
@@ -13,7 +14,7 @@ self.addEventListener("message", async (event) => {
   const jobId = ++activeJob;
   const started = performance.now();
   try {
-    const result = await solveHoldemRiver(message.config, {
+    const result = await solvePokerSpot(message.config, {
       yieldEvery: 5_000,
       isCancelled: () => jobId !== activeJob,
       onProgress: (progress) => {

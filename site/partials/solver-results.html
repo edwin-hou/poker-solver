@@ -1,12 +1,12 @@
-          <section class="results-panel panel" aria-live="polite">
+          <section class="results-panel panel study-panel" aria-live="polite">
             <div class="results-placeholder" id="results-placeholder">
               <div class="placeholder-orbit"><span></span><span></span><span></span></div>
-              <h3>Your strategy grid will appear here</h3>
-              <p>Configure the river spot and start CFR+ training. The default example usually completes in seconds on a modern desktop.</p>
+              <h3>Your strategy matrix will appear here</h3>
+              <p>Choose a starting street, configure the ranges and betting tree, then run CFR+.</p>
               <div class="placeholder-facts">
-                <div><strong>Exact</strong><span>hand ranking</span></div>
-                <div><strong>Combo</strong><span>card removal</span></div>
-                <div><strong>Best response</strong><span>exploitability</span></div>
+                <div><strong>Preflop–river</strong><span>street selector</span></div>
+                <div><strong>1,326 combos</strong><span>exact card removal</span></div>
+                <div><strong>CFR+</strong><span>best-response analysis</span></div>
               </div>
             </div>
 
@@ -16,7 +16,7 @@
                 <div>
                   <span class="eyebrow">CFR+ training</span>
                   <h3 id="progress-title">Building game tree…</h3>
-                  <p id="progress-detail">Expanding two-card combinations and evaluating seven-card hands.</p>
+                  <p id="progress-detail">Expanding two-card combinations and sampling public runouts.</p>
                 </div>
               </div>
               <div class="progress-track"><span id="progress-bar"></span></div>
@@ -24,25 +24,31 @@
             </div>
 
             <div class="results-view" id="results-view" hidden>
-              <div class="result-header">
-                <div>
-                  <span class="eyebrow">Solved strategy</span>
-                  <h3 id="result-board">—</h3>
+              <div class="study-header">
+                <div class="result-header-copy">
+                  <span class="street-badge" id="result-street">FLOP</span>
+                  <div><span class="eyebrow">Solved strategy</span><h3 id="result-board">—</h3></div>
                 </div>
                 <div class="result-actions">
-                  <button class="icon-button" id="export-button" title="Download solution JSON">↓ JSON</button>
+                  <button class="icon-button" id="export-button" title="Download solution JSON">↓ Export</button>
                   <button class="icon-button" id="resolve-button" title="Run the current configuration again">↻ Re-solve</button>
                 </div>
               </div>
 
-              <div class="metric-grid">
+              <div class="study-nav" aria-label="Solution sections">
+                <button type="button" class="active">Strategy</button>
+                <span>Range matrix</span>
+                <span>Combo details</span>
+              </div>
+
+              <div class="metric-grid compact-metrics">
                 <article class="metric-card">
-                  <span>Exploitability</span>
+                  <span id="metric-exploitability-label">Exploitability</span>
                   <strong id="metric-exploitability">—</strong>
                   <small id="metric-exploitability-pot">—</small>
                 </article>
                 <article class="metric-card">
-                  <span>OOP EV</span>
+                  <span id="metric-oop-label">OOP EV</span>
                   <strong id="metric-oop-ev">—</strong>
                   <small>chips / hand</small>
                 </article>
@@ -58,41 +64,31 @@
                 </article>
               </div>
 
-              <div class="node-toolbar">
-                <div>
-                  <label for="node-select">Decision node</label>
-                  <select id="node-select"></select>
-                </div>
+              <div class="node-toolbar wizard-node-toolbar">
+                <div><label for="node-select">Decision node</label><select id="node-select"></select></div>
                 <div class="range-side" id="range-side">OOP range</div>
               </div>
-
               <div class="action-legend" id="action-legend"></div>
-              <div class="grid-scroll">
-                <div class="range-grid" id="range-grid" role="grid" aria-label="Hold'em range strategy grid"></div>
-              </div>
-              <p class="grid-hint">Click any hand class to inspect its exact suit combinations and action frequencies.</p>
 
-              <div class="combo-inspector">
-                <div class="inspector-heading">
-                  <div>
-                    <span class="eyebrow">Combo inspection</span>
-                    <h4 id="selected-class">Select a hand</h4>
+              <div class="strategy-workspace">
+                <div class="matrix-column">
+                  <div class="grid-scroll"><div class="range-grid" id="range-grid" role="grid" aria-label="Hold'em range strategy grid"></div></div>
+                  <p class="grid-hint">Click a hand class to inspect exact suit combinations and mixed frequencies.</p>
+                </div>
+                <aside class="combo-inspector side-inspector">
+                  <div class="inspector-heading">
+                    <div><span class="eyebrow">Combo details</span><h4 id="selected-class">Select a hand</h4></div>
+                    <div class="class-summary" id="class-summary"></div>
                   </div>
-                  <div class="class-summary" id="class-summary"></div>
-                </div>
-                <div class="combo-table-wrap">
-                  <table class="combo-table">
-                    <thead id="combo-head"></thead>
-                    <tbody id="combo-body">
-                      <tr><td class="empty-cell">Choose a populated grid cell above.</td></tr>
-                    </tbody>
-                  </table>
-                </div>
+                  <div class="combo-table-wrap">
+                    <table class="combo-table"><thead id="combo-head"></thead><tbody id="combo-body"><tr><td class="empty-cell">Choose a populated grid cell.</td></tr></tbody></table>
+                  </div>
+                </aside>
               </div>
 
               <div class="result-footnote">
-                <strong>Accuracy note:</strong>
-                <span id="accuracy-note">Exploitability is computed against exact pure best responses for this restricted finite river tree.</span>
+                <strong>Accuracy:</strong>
+                <span id="accuracy-note">River uses exact best responses; earlier streets use Monte Carlo runout and best-response estimates.</span>
               </div>
             </div>
           </section>

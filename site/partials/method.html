@@ -2,39 +2,39 @@
         <div class="section-heading method-heading">
           <div>
             <div class="eyebrow">Transparent by design</div>
-            <h2>What this solver actually computes</h2>
+            <h2>What the all-street solver computes</h2>
           </div>
-          <p>Poker Solver borrows the workflow of commercial poker study tools while keeping the game definition, strategy, and convergence metric inspectable.</p>
+          <p>Poker Solver uses the configure → solve → inspect workflow familiar from modern GTO study tools while keeping its smaller browser-scale abstractions explicit.</p>
         </div>
         <div class="method-grid">
           <article>
             <span class="method-index">01</span>
-            <h3>Expand exact combos</h3>
-            <p>Standard 169-class notation becomes individual two-card holdings. The five-card board removes blocked combinations before any training begins.</p>
+            <h3>Choose the starting street</h3>
+            <p>Build a heads-up preflop push/fold game or start directly on a flop, turn, or river board with weighted two-card ranges.</p>
           </article>
           <article>
             <span class="method-index">02</span>
-            <h3>Evaluate real Hold'em hands</h3>
-            <p>Every remaining combo receives an exact seven-card score. Showdown payoffs therefore use actual pairs, straights, flushes, boats, and card removal.</p>
+            <h3>Expand exact combos</h3>
+            <p>The 169 hand classes become suit-specific holdings. Public cards and the opponent's hand remove impossible combinations.</p>
           </article>
           <article>
             <span class="method-index">03</span>
-            <h3>Minimize counterfactual regret</h3>
-            <p>Chance-sampled CFR+ repeatedly deals compatible holdings, updates action regrets, and forms a linearly weighted average strategy.</p>
+            <h3>Train with CFR+</h3>
+            <p>Preflop, flop, and turn sample future boards. River retains exact showdown values and exact finite-tree best responses.</p>
           </article>
           <article>
             <span class="method-index">04</span>
-            <h3>Attack the strategy</h3>
-            <p>An exact evaluator computes each player's best information-consistent response. NashConv divided by two is reported as exploitability.</p>
+            <h3>Inspect the solution</h3>
+            <p>Browse decision nodes, action-colored range matrices, combo frequencies, EV, and exact or Monte Carlo exploitability.</p>
           </article>
         </div>
         <div class="limitation-card">
           <div>
-            <span class="eyebrow">Scope and roadmap</span>
-            <h3>Genuine Hold'em, intentionally bounded tree</h3>
+            <span class="eyebrow">Important scope</span>
+            <h3>All streets are available, but this is not one commercial-scale game tree</h3>
           </div>
           <p>
-            The hosted edition solves one heads-up river betting street with multiple bet sizes and fold/call responses. It does not reproduce GTO Wizard's proprietary database, multi-street abstractions, or server-scale compute. Raising, turn/flop chance nodes, range locking, and subgame decomposition are natural next layers in the open-source engine.
+            Preflop is a heads-up push/fold abstraction. Flop and turn solve only the selected betting street and sample later cards without later-street betting. River solves its complete configured check/bet/fold/call tree exactly. Postflop raises, multiway play, rake, ICM, four-bets, and a monolithic preflop-to-river no-limit tree remain future work.
           </p>
         </div>
       </section>

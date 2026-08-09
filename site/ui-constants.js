@@ -1,35 +1,80 @@
 import { RANGE_PRESETS } from "../src/index.js";
 
-export const ACTION_COLORS = ["#53657d", "#e7a63a", "#ed6176", "#9a73ea", "#42c8d8", "#59d29a"];
+export const ACTION_COLORS = ["#64748b", "#4387ff", "#ef5f73", "#9b72ef", "#2fc5aa", "#f2ad45"];
 export const number = new Intl.NumberFormat("en-US");
 export const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
+export const STREET_META = Object.freeze({
+  preflop: { label: "Preflop", boardCards: 0, positions: ["SB", "BB"] },
+  flop: { label: "Flop", boardCards: 3, positions: ["OOP", "IP"] },
+  turn: { label: "Turn", boardCards: 4, positions: ["OOP", "IP"] },
+  river: { label: "River", boardCards: 5, positions: ["OOP", "IP"] },
+});
+
 export const SCENARIOS = Object.freeze({
-  "ace-high": {
-    board: "Ah Kd 7c 4s 2d",
+  "preflop-15bb": {
+    label: "HU push/fold · 15bb",
+    street: "preflop",
+    board: "",
+    oopRange: "random",
+    ipRange: "random",
+    smallBlind: 0.5,
+    bigBlind: 1,
+    ante: 0,
+    stack: 15,
+    iterations: 180_000,
+    evaluationSamples: 20_000,
+    averagingDelay: 2_000,
+    seed: 20_260_810,
+  },
+  "preflop-8bb": {
+    label: "HU push/fold · 8bb + ante",
+    street: "preflop",
+    board: "",
+    oopRange: "random",
+    ipRange: "random",
+    smallBlind: 0.5,
+    bigBlind: 1,
+    ante: 0.1,
+    stack: 8,
+    iterations: 150_000,
+    evaluationSamples: 18_000,
+    averagingDelay: 1_500,
+    seed: 20_260_811,
+  },
+  "flop-srp": {
+    label: "Flop · BTN vs BB SRP",
+    street: "flop",
+    board: "Qs Ts 7h",
     oopRange: RANGE_PRESETS.oopRiver,
     ipRange: RANGE_PRESETS.ipRiver,
-    pot: 100,
-    stack: 100,
+    pot: 6,
+    stack: 97,
+    oopBets: "33, 75",
+    ipBets: "33, 75",
+    iterations: 220_000,
+    evaluationSamples: 24_000,
+    averagingDelay: 3_000,
+    seed: 20_260_812,
+  },
+  "turn-barrel": {
+    label: "Turn · ace-high barrel",
+    street: "turn",
+    board: "Ah Kd 7c 4s",
+    oopRange: RANGE_PRESETS.oopRiver,
+    ipRange: RANGE_PRESETS.ipRiver,
+    pot: 18,
+    stack: 82,
     oopBets: "50, 100",
     ipBets: "50, 100",
-    iterations: 500_000,
-    averagingDelay: 5_000,
-    seed: 20_260_808,
-  },
-  paired: {
-    board: "Qh Qd 8c 5s 2c",
-    oopRange: "22+,A2s+,K5s+,Q8s+,J8s+,T8s+,98s,87s,A8o+,KTo+,QTo+,JTo",
-    ipRange: "22+,A2s+,K2s+,Q5s+,J7s+,T7s+,97s+,87s,76s,65s,A2o+,K8o+,Q9o+,J9o+,T9o",
-    pot: 120,
-    stack: 180,
-    oopBets: "33, 75, 150",
-    ipBets: "50, 100",
-    iterations: 350_000,
+    iterations: 200_000,
+    evaluationSamples: 22_000,
     averagingDelay: 3_000,
-    seed: 20_260_809,
+    seed: 20_260_813,
   },
-  polar: {
+  "river-polar": {
+    label: "River · polar benchmark",
+    street: "river",
     board: "2c 3d 7h 8s Kc",
     oopRange: "AA,QQ,AsKs,5c4c,6c5c",
     ipRange: "JJ,TT,AdKd,5d4d,6d5d",
@@ -38,21 +83,32 @@ export const SCENARIOS = Object.freeze({
     oopBets: "75",
     ipBets: "75",
     iterations: 80_000,
+    evaluationSamples: 12_000,
     averagingDelay: 1_000,
     seed: 42,
   },
-  full: {
-    board: "Js 9s 6d 3c 2h",
-    oopRange: "random",
-    ipRange: "random",
+  "river-wide": {
+    label: "River · wide ranges",
+    street: "river",
+    board: "Ah Kd 7c 4s 2d",
+    oopRange: RANGE_PRESETS.oopRiver,
+    ipRange: RANGE_PRESETS.ipRiver,
     pot: 100,
-    stack: 200,
-    oopBets: "33, 75, 150",
-    ipBets: "33, 75, 150",
+    stack: 100,
+    oopBets: "50, 100",
+    ipBets: "50, 100",
     iterations: 500_000,
+    evaluationSamples: 30_000,
     averagingDelay: 5_000,
-    seed: 1_337,
+    seed: 20_260_808,
   },
+});
+
+export const DEFAULT_SCENARIO_BY_STREET = Object.freeze({
+  preflop: "preflop-15bb",
+  flop: "flop-srp",
+  turn: "turn-barrel",
+  river: "river-polar",
 });
 
 export function formatFloat(value) {

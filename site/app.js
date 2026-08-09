@@ -1,21 +1,56 @@
-import { expandRange, parseBetSizes, parseBoard, summarizeRange } from "../src/index.js";
-import { SCENARIOS, formatFloat, number } from "./ui-constants.js";
-import { clearNodeSelection, exportResult, initializeResultView, renderNode, renderResult } from "./result-view.js";
+import {
+  expandRange,
+  parseBetSizes,
+  parseCards,
+  summarizeRange,
+  validatePokerConfig,
+} from "../src/index.js";
+import {
+  DEFAULT_SCENARIO_BY_STREET,
+  SCENARIOS,
+  STREET_META,
+  formatFloat,
+  number,
+} from "./ui-constants.js";
+import {
+  clearNodeSelection,
+  exportResult,
+  initializeResultView,
+  renderNode,
+  renderResult,
+} from "./result-view.js";
 
 const $ = (selector) => document.querySelector(selector);
 const elements = {
   form: $("#solver-form"),
   scenario: $("#scenario"),
+  street: $("#street"),
+  streetTabs: [...document.querySelectorAll("#street-tabs [data-street]")],
+  postflopSetup: $("#postflop-setup"),
+  preflopSetup: $("#preflop-setup"),
+  postflopBetting: $("#postflop-betting"),
+  preflopBetting: $("#preflop-betting"),
   board: $("#board"),
+  boardFieldLabel: $("#board-field-label"),
+  boardHelp: $("#board-help"),
   pot: $("#pot"),
   stack: $("#stack"),
+  smallBlind: $("#small-blind"),
+  bigBlind: $("#big-blind"),
+  ante: $("#ante"),
+  preflopStack: $("#preflop-stack"),
   oopRange: $("#oop-range"),
   ipRange: $("#ip-range"),
+  oopRangeLabel: $("#oop-range-label"),
+  ipRangeLabel: $("#ip-range-label"),
+  oopPositionChip: $("#oop-position-chip"),
+  ipPositionChip: $("#ip-position-chip"),
   oopBets: $("#oop-bets"),
   ipBets: $("#ip-bets"),
   iterations: $("#iterations"),
   iterationsOutput: $("#iterations-output"),
   averagingDelay: $("#averaging-delay"),
+  evaluationSamples: $("#evaluation-samples"),
   seed: $("#seed"),
   oopRangeCount: $("#oop-range-count"),
   ipRangeCount: $("#ip-range-count"),
@@ -32,9 +67,12 @@ const elements = {
   progressBar: $("#progress-bar"),
   progressIterations: $("#progress-iterations"),
   progressPercent: $("#progress-percent"),
+  resultStreet: $("#result-street"),
   resultBoard: $("#result-board"),
+  metricExploitabilityLabel: $("#metric-exploitability-label"),
   metricExploitability: $("#metric-exploitability"),
   metricExploitabilityPot: $("#metric-exploitability-pot"),
+  metricOopLabel: $("#metric-oop-label"),
   metricOopEv: $("#metric-oop-ev"),
   metricDeals: $("#metric-deals"),
   metricIterations: $("#metric-iterations"),
@@ -54,8 +92,6 @@ const elements = {
 };
 
 let worker = null;
-let latestResult = null;
-let latestConfig = null;
 let rangeDebounce = null;
 
 function initializeHeroGrid() {
@@ -91,17 +127,22 @@ function handleWorkerMessage(event) {
   const message = event.data ?? {};
   if (message.type === "progress") {
     const { iteration, target, fraction } = message.progress;
-    elements.progressTitle.textContent = "Training mixed strategies…";
-    elements.progressDetail.textContent = "Sampling compatible two-card deals and updating counterfactual regrets.";
+    const street = elements.street.value;
+    elements.progressTitle.textContent = `Solving ${STREET_META[street].label.toLowerCase()} strategy…`;
+    elements.progressDetail.textContent =
+      street === "preflop"
+        ? "Sampling two-card deals and five-card boards while updating push/fold regrets."
+        : street === "river"
+          ? "Updating exact river counterfactual regrets."
+          : "Sampling compatible deals and future public runouts while updating regrets.";
     elements.progressBar.style.width = `${Math.max(0, Math.min(100, fraction * 100))}%`;
     elements.progressIterations.textContent = `${number.format(iteration)} / ${number.format(target)} iterations`;
     elements.progressPercent.textContent = `${Math.floor(fraction * 100)}%`;
     return;
   }
   if (message.type === "result") {
-    latestResult = message.result;
     finishSolve();
-    renderResult(latestResult);
+    renderResult(message.result);
     return;
   }
   if (message.type === "cancelled") {
@@ -109,9 +150,7 @@ function handleWorkerMessage(event) {
     showPlaceholder();
     return;
   }
-  if (message.type === "error") {
-    finishWithError(message.error?.message ?? "Unknown solver error.");
-  }
+  if (message.type === "error") finishWithError(message.error?.message ?? "Unknown solver error.");
 }
 
 function showPlaceholder() {
@@ -121,11 +160,15 @@ function showPlaceholder() {
 }
 
 function showProgress() {
+  const street = elements.street.value;
   elements.placeholder.hidden = true;
   elements.resultsView.hidden = true;
   elements.progressView.hidden = false;
-  elements.progressTitle.textContent = "Building combo game…";
-  elements.progressDetail.textContent = "Applying board blockers and evaluating exact seven-card hand strengths.";
+  elements.progressTitle.textContent = `Building ${STREET_META[street].label.toLowerCase()} game…`;
+  elements.progressDetail.textContent =
+    street === "preflop"
+      ? "Expanding SB and BB ranges, blinds, and the push/fold game."
+      : "Applying board blockers and preparing exact two-card combinations.";
   elements.progressBar.style.width = "1%";
   elements.progressIterations.textContent = "Preparing ranges";
   elements.progressPercent.textContent = "0%";
@@ -143,23 +186,84 @@ function finishWithError(message) {
   showPlaceholder();
 }
 
-function setScenario(name) {
-  const scenario = SCENARIOS[name] ?? SCENARIOS["ace-high"];
-  elements.board.value = scenario.board;
+function setStreet(street, { updateScenario = false } = {}) {
+  if (!(street in STREET_META)) street = "flop";
+  elements.street.value = street;
+  for (const button of elements.streetTabs) {
+    const active = button.dataset.street === street;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  }
+  const preflop = street === "preflop";
+  elements.preflopSetup.hidden = !preflop;
+  elements.preflopBetting.hidden = !preflop;
+  elements.postflopSetup.hidden = preflop;
+  elements.postflopBetting.hidden = preflop;
+
+  const [firstPosition, secondPosition] = STREET_META[street].positions;
+  elements.oopRangeLabel.textContent = `${firstPosition} range`;
+  elements.ipRangeLabel.textContent = `${secondPosition} range`;
+  elements.oopPositionChip.textContent = firstPosition;
+  elements.ipPositionChip.textContent = secondPosition;
+  elements.boardFieldLabel.textContent = `${STREET_META[street].label} board`;
+  const count = STREET_META[street].boardCards;
+  elements.boardHelp.textContent = count
+    ? `Enter exactly ${count} unique card${count === 1 ? "" : "s"}.`
+    : "No board cards preflop.";
+
+  if (updateScenario) setScenario(DEFAULT_SCENARIO_BY_STREET[street], { updateStreet: false });
+  else refreshInputs();
+}
+
+function setScenario(name, { updateStreet = true } = {}) {
+  const scenario = SCENARIOS[name] ?? SCENARIOS["flop-srp"];
+  if (updateStreet) setStreet(scenario.street, { updateScenario: false });
+  elements.scenario.value = name in SCENARIOS ? name : DEFAULT_SCENARIO_BY_STREET[scenario.street];
+  elements.board.value = scenario.board ?? "";
   elements.oopRange.value = scenario.oopRange;
   elements.ipRange.value = scenario.ipRange;
-  elements.pot.value = scenario.pot;
-  elements.stack.value = scenario.stack;
-  elements.oopBets.value = scenario.oopBets;
-  elements.ipBets.value = scenario.ipBets;
   elements.iterations.value = scenario.iterations;
+  elements.evaluationSamples.value = scenario.evaluationSamples;
   elements.averagingDelay.value = scenario.averagingDelay;
   elements.seed.value = scenario.seed;
+
+  if (scenario.street === "preflop") {
+    elements.smallBlind.value = scenario.smallBlind;
+    elements.bigBlind.value = scenario.bigBlind;
+    elements.ante.value = scenario.ante;
+    elements.preflopStack.value = scenario.stack;
+  } else {
+    elements.pot.value = scenario.pot;
+    elements.stack.value = scenario.stack;
+    elements.oopBets.value = scenario.oopBets;
+    elements.ipBets.value = scenario.ipBets;
+  }
   refreshInputs();
 }
 
 function readConfig() {
+  const street = elements.street.value;
+  const common = {
+    street,
+    iterations: Number(elements.iterations.value),
+    averagingDelay: Number(elements.averagingDelay.value),
+    evaluationSamples: Number(elements.evaluationSamples.value),
+    seed: Number(elements.seed.value),
+    progressEvery: 5_000,
+  };
+  if (street === "preflop") {
+    return {
+      ...common,
+      sbRange: elements.oopRange.value,
+      bbRange: elements.ipRange.value,
+      smallBlind: Number(elements.smallBlind.value),
+      bigBlind: Number(elements.bigBlind.value),
+      ante: Number(elements.ante.value),
+      stack: Number(elements.preflopStack.value),
+    };
+  }
   return {
+    ...common,
     board: elements.board.value,
     oopRange: elements.oopRange.value,
     ipRange: elements.ipRange.value,
@@ -167,23 +271,18 @@ function readConfig() {
     stack: Number(elements.stack.value),
     oopBetSizes: elements.oopBets.value,
     ipBetSizes: elements.ipBets.value,
-    iterations: Number(elements.iterations.value),
-    averagingDelay: Number(elements.averagingDelay.value),
-    seed: Number(elements.seed.value),
-    progressEvery: 5_000,
   };
 }
 
 function validateBeforeSolve(config) {
-  const board = parseBoard(config.board);
-  if (!Number.isFinite(config.pot) || config.pot <= 0) throw new Error("Pot must be positive.");
-  if (!Number.isFinite(config.stack) || config.stack <= 0) throw new Error("Effective stack must be positive.");
-  const oop = expandRange(config.oopRange, board);
-  const ip = expandRange(config.ipRange, board);
-  if (!oop.length || !ip.length) throw new Error("Both ranges need at least one unblocked combo.");
-  parseBetSizes(config.oopBetSizes, config.pot, config.stack);
-  parseBetSizes(config.ipBetSizes, config.pot, config.stack);
-  return { board, oop, ip };
+  const normalized = validatePokerConfig(config);
+  const blocked = normalized.board ?? [];
+  const firstRange = config.street === "preflop" ? config.sbRange : config.oopRange;
+  const secondRange = config.street === "preflop" ? config.bbRange : config.ipRange;
+  if (!expandRange(firstRange, blocked).length || !expandRange(secondRange, blocked).length) {
+    throw new Error("Both ranges need at least one unblocked combo.");
+  }
+  return normalized;
 }
 
 function beginSolve(event) {
@@ -197,7 +296,6 @@ function beginSolve(event) {
     elements.error.textContent = error.message;
     return;
   }
-  latestConfig = config;
   elements.solveButton.disabled = true;
   elements.cancelButton.hidden = false;
   showProgress();
@@ -220,9 +318,14 @@ function refreshInputs() {
   updateTreePreview();
 }
 
+function currentBoard() {
+  const count = STREET_META[elements.street.value].boardCards;
+  return count === 0 ? [] : parseCards(elements.board.value, { exact: count });
+}
+
 function updateRangeCounts() {
   try {
-    const board = parseBoard(elements.board.value);
+    const board = currentBoard();
     updateRangeCount(elements.oopRange, elements.oopRangeCount, board);
     updateRangeCount(elements.ipRange, elements.ipRangeCount, board);
     elements.error.hidden = true;
@@ -235,7 +338,7 @@ function updateRangeCounts() {
 function updateRangeCount(input, output, board) {
   try {
     const summary = summarizeRange(expandRange(input.value, board));
-    output.textContent = `${number.format(summary.comboCount)} unblocked combos · ${formatFloat(summary.weightedCombos)} weighted`;
+    output.textContent = `${number.format(summary.comboCount)} combos · ${formatFloat(summary.weightedCombos)} weighted`;
     output.style.color = "";
   } catch (error) {
     output.textContent = error.message;
@@ -245,6 +348,15 @@ function updateRangeCount(input, output, board) {
 
 function updateTreePreview() {
   try {
+    if (elements.street.value === "preflop") {
+      const stack = formatFloat(Number(elements.preflopStack.value));
+      elements.treePreview.innerHTML = [
+        `<div class="tree-line"><i></i><strong>SB</strong><span>Fold · Jam ${stack}bb</span></div>`,
+        `<div class="tree-line"><i></i><strong>BB vs jam</strong><span>Fold · Call</span></div>`,
+        `<div class="tree-line"><i></i><strong>Called branch</strong><span>Sampled five-card check-down board</span></div>`,
+      ].join("");
+      return;
+    }
     const pot = Number(elements.pot.value);
     const stack = Number(elements.stack.value);
     const oop = parseBetSizes(elements.oopBets.value, pot, stack);
@@ -252,7 +364,7 @@ function updateTreePreview() {
     elements.treePreview.innerHTML = [
       `<div class="tree-line"><i></i><strong>OOP</strong><span>Check · ${oop.map((size) => `Bet ${formatFloat(size)}`).join(" · ")}</span></div>`,
       `<div class="tree-line"><i></i><strong>IP</strong><span>After check: Check · ${ip.map((size) => `Bet ${formatFloat(size)}`).join(" · ")}</span></div>`,
-      `<div class="tree-line"><i></i><strong>Vs bet</strong><span>Fold · Call (raises excluded)</span></div>`,
+      `<div class="tree-line"><i></i><strong>Vs bet</strong><span>Fold · Call</span></div>`,
     ].join("");
   } catch (error) {
     elements.treePreview.textContent = error.message;
@@ -263,11 +375,13 @@ function wireEvents() {
   elements.form.addEventListener("submit", beginSolve);
   elements.cancelButton.addEventListener("click", cancelSolve);
   elements.resetButton.addEventListener("click", () => {
-    elements.scenario.value = "ace-high";
-    setScenario("ace-high");
+    setScenario(DEFAULT_SCENARIO_BY_STREET[elements.street.value]);
     showPlaceholder();
   });
   elements.scenario.addEventListener("change", () => setScenario(elements.scenario.value));
+  for (const button of elements.streetTabs) {
+    button.addEventListener("click", () => setStreet(button.dataset.street, { updateScenario: true }));
+  }
   elements.nodeSelect.addEventListener("change", () => {
     clearNodeSelection();
     renderNode();
@@ -278,11 +392,16 @@ function wireEvents() {
     elements.board,
     elements.pot,
     elements.stack,
+    elements.smallBlind,
+    elements.bigBlind,
+    elements.ante,
+    elements.preflopStack,
     elements.oopRange,
     elements.ipRange,
     elements.oopBets,
     elements.ipBets,
     elements.iterations,
+    elements.evaluationSamples,
   ].forEach((input) => input.addEventListener("input", refreshInputs));
 }
 
@@ -290,4 +409,4 @@ initializeResultView(elements);
 initializeHeroGrid();
 wireEvents();
 createWorker();
-refreshInputs();
+setScenario("flop-srp");

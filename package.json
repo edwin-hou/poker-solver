@@ -1,9 +1,9 @@
 {
   "name": "poker-solver",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser-based combo-level CFR+ solver for heads-up two-card Texas Hold'em river spots",
+  "description": "Browser-based combo-level CFR+ study solver for heads-up two-card Texas Hold'em from preflop through river",
   "homepage": "https://edwin-hou.github.io/poker-solver/",
   "repository": {
     "type": "git",
