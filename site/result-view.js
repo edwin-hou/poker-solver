@@ -35,38 +35,55 @@ export function renderResult(result) {
 
   const street = result.abstraction?.street ?? result.config?.street ?? "river";
   const meta = STREET_META[street] ?? STREET_META.river;
+  const lookup = result.abstraction?.mode === "lookup";
   elements.resultStreet.textContent = meta.label.toUpperCase();
   if (result.config.board?.length) {
     elements.resultBoard.innerHTML = result.config.board.map((card) => cardToHtml(card)).join(" ");
+  } else if (lookup) {
+    elements.resultBoard.textContent = result.nodes[0].label;
   } else {
-    elements.resultBoard.textContent = "SB vs BB · heads-up preflop";
+    elements.resultBoard.textContent = "SB vs BB · heads-up push/fold";
   }
 
-  const evaluation = result.evaluation;
-  const exact = evaluation.exact !== false;
-  elements.metricExploitabilityLabel.textContent = exact ? "Exploitability" : "MC exploitability est.";
-  elements.metricExploitability.textContent = formatChips(evaluation.exploitability);
-  elements.metricExploitabilityPot.textContent = `${percent.format(
-    (evaluation.exploitability / result.config.pot) * 100,
-  )}% of pot`;
-  elements.metricOopLabel.textContent = street === "preflop" ? "SB EV" : "OOP EV";
-  elements.metricOopEv.textContent = formatSigned(evaluation.profileValueOop);
-  elements.metricDeals.textContent = formatCompact(result.compatibleDealWeight);
-  elements.metricIterations.textContent = formatCompact(result.iterations);
-  elements.metricRuntime.textContent = `${formatDuration(result.runtimeMs)} browser runtime`;
-
-  if (exact) {
-    elements.accuracyNote.textContent = `Exact information-consistent best responses for the finite river tree: ${formatChips(
-      evaluation.exploitability,
-    )} exploitability.`;
+  const evaluation = result.evaluation ?? {};
+  if (lookup) {
+    elements.metricExploitabilityLabel.textContent = "Model";
+    elements.metricExploitability.textContent = "Lookup";
+    elements.metricExploitabilityPot.textContent = "approximate chart";
+    elements.metricOopLabel.textContent = "Continue target";
+    elements.metricOopEv.textContent = `${percent.format((result.lookup?.targetContinueFrequency ?? 0) * 100)}%`;
+    elements.metricDeals.textContent = formatCompact(result.ranges?.hero?.comboCount ?? result.nodes[0].combos.length);
+    elements.metricIterations.textContent = "Instant";
+    elements.metricRuntime.textContent = `${formatDuration(result.runtimeMs)} browser runtime`;
+    elements.accuracyNote.textContent =
+      result.lookup?.note ??
+      "Approximate positional preflop chart. EV, NashConv, and exploitability are not measured.";
   } else {
-    const samples = evaluation.evaluationSamples ?? result.config.evaluationSamples;
-    const errorText = Number.isFinite(evaluation.profileStandardError)
-      ? ` Profile EV standard error ≈ ${formatChips(evaluation.profileStandardError)}.`
-      : "";
-    elements.accuracyNote.textContent = `${evaluation.method ?? "Monte Carlo best-response estimate"} using ${number.format(
-      samples ?? 0,
-    )} evaluation samples.${errorText}`;
+    const exact = evaluation.exact !== false;
+    elements.metricExploitabilityLabel.textContent = exact ? "Exploitability" : "MC exploitability est.";
+    elements.metricExploitability.textContent = formatChips(evaluation.exploitability);
+    elements.metricExploitabilityPot.textContent = `${percent.format(
+      (evaluation.exploitability / result.config.pot) * 100,
+    )}% of pot`;
+    elements.metricOopLabel.textContent = street === "preflop" ? "SB EV" : "OOP EV";
+    elements.metricOopEv.textContent = formatSigned(evaluation.profileValueOop);
+    elements.metricDeals.textContent = formatCompact(result.compatibleDealWeight);
+    elements.metricIterations.textContent = formatCompact(result.iterations);
+    elements.metricRuntime.textContent = `${formatDuration(result.runtimeMs)} browser runtime`;
+
+    if (exact) {
+      elements.accuracyNote.textContent = `Exact information-consistent best responses for the finite river tree: ${formatChips(
+        evaluation.exploitability,
+      )} exploitability.`;
+    } else {
+      const samples = evaluation.evaluationSamples ?? result.config.evaluationSamples;
+      const errorText = Number.isFinite(evaluation.profileStandardError)
+        ? ` Profile EV standard error ≈ ${formatChips(evaluation.profileStandardError)}.`
+        : "";
+      elements.accuracyNote.textContent = `${evaluation.method ?? "Monte Carlo best-response estimate"} using ${number.format(
+        samples ?? 0,
+      )} evaluation samples.${errorText}`;
+    }
   }
 
   elements.nodeSelect.innerHTML = result.nodes
@@ -239,11 +256,13 @@ export function exportResult() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   const street = latestResult.abstraction?.street ?? "spot";
-  const board = latestResult.config.board?.length
-    ? latestResult.config.board.map((card) => cardToString(card)).join("")
-    : "preflop";
+  const descriptor = latestResult.abstraction?.mode === "lookup"
+    ? `${latestResult.config.heroPosition}-${latestResult.config.preflopSpot}`
+    : latestResult.config.board?.length
+      ? latestResult.config.board.map((card) => cardToString(card)).join("")
+      : "push-fold";
   anchor.href = url;
-  anchor.download = `poker-solver-${street}-${board}-${latestResult.iterations}.json`;
+  anchor.download = `poker-solver-${street}-${descriptor}.json`;
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
