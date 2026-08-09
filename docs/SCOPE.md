@@ -1,115 +1,88 @@
-# Scope: Poker Solver versus a commercial multi-street platform
+# Hosted scope
 
-Poker Solver is a real two-card Texas Hold'em CFR+ study solver, but “all-street solver” can describe products with radically different game trees and compute budgets. This document defines exactly what the hosted application solves.
+Poker Solver is a browser-scale two-card Texas Hold'em study application. The public GitHub Pages site contains only the solver workspace.
 
-## Current hosted capabilities
+## Current capabilities
 
-| Capability | Poker Solver 1.1 |
+| Capability | Poker Solver 1.2 |
 |---|---|
 | Deck and private cards | Full 52-card deck; exact two-card combinations |
-| Ranges | Weighted 169 classes or explicit suit combos |
-| Blockers | Exact public-board and cross-player card removal |
-| Hand strength | Exact five-card and best-five-of-seven evaluation |
-| Players | Heads-up only |
-| Starting streets | Preflop, flop, turn, and river |
-| Preflop tree | SB fold/jam; BB fold/call |
-| Flop tree | One OOP/IP betting street; future turn and river check down |
-| Turn tree | One OOP/IP betting street; future river checks down |
-| River tree | Complete configured check/bet/fold/call abstraction |
-| Postflop bet sizes | Multiple user-defined initial sizes for OOP and IP |
-| Postflop raises | Not yet |
-| Training | Chance-sampled CFR+ with linear averaging |
-| River evaluation | Exact profile EV and exact pure best responses |
-| Earlier-street evaluation | Monte Carlo profile EV and information-consistent best-response estimates |
-| Hosting | Static GitHub Pages; computation runs locally in a Web Worker |
+| Range input | Weighted 169 classes or explicit suit combos |
+| Card removal | Exact public-board and cross-player blockers |
+| Hand evaluation | Exact five-card and best-five-of-seven ordering |
+| Preflop chart positions | UTG, HJ, CO, BTN, SB, BB |
+| Preflop chart spots | Open first in, facing open, facing 3-bet |
+| Preflop chart output | Approximate fold/call/limp/raise/3-bet/4-bet frequencies |
+| Preflop CFR+ tree | Heads-up SB fold/jam; BB fold/call |
+| Flop | One strategic street; sampled turn-river check-down |
+| Turn | One strategic street; sampled river check-down |
+| River | Complete configured check/bet/fold/call abstraction |
+| Raises postflop | Not yet |
 | Strategy view | Decision-node selector, 13×13 matrix, exact combo table |
-| Export | Full configuration, strategies, metrics, and metadata as JSON |
+| Hosting | Static GitHub Pages; local Web Worker computation |
+| Export | Complete JSON result |
 
-## What “preflop through river” means here
+## Two different preflop products
 
-The solution builder can start on any of the four Hold'em streets. Each mode is an independently defined abstraction:
+### Six-max lookup charts
 
-### Preflop
+This is the default preflop experience. It is intended for ordinary cash-game questions such as:
 
-The preflop mode solves a heads-up push/fold game. It models exact hole-card combinations, blinds, antes, effective stack, and sampled five-card runouts when an all-in is called.
+- What should BTN open at 100bb?
+- How should BB respond to a 2.5bb BTN open?
+- How should CO respond after BTN 3-bets?
 
-It does not currently model:
+The engine uses position-specific lookup targets, stack and price adjustments, and transparent hand-class scoring. It creates plausible mixed-frequency charts immediately.
 
-- limping;
-- non-all-in opens;
-- calls against ordinary raises;
-- 3-bets and 4-bets;
-- multiple stack depths in one tree;
-- six-max or multiway positions;
-- rake or ICM.
+It is **not** an unrestricted equilibrium solve. The interface therefore does not display EV, NashConv, or exploitability for lookup output.
+
+### Heads-up push/fold CFR+
+
+This is a genuine sampled regret-minimization game, but its tree is deliberately narrow:
+
+```text
+SB fold/jam → BB fold/call
+```
+
+It supports ranges, blinds, antes, stack depth, sampled all-in boards, and Monte Carlo best-response evaluation.
+
+## Postflop boundaries
 
 ### Flop
 
-The flop mode solves the configured flop betting street. It samples compatible turn and river cards to calculate showdown values, but it assumes both later streets check through after the selected flop action resolves.
-
-It therefore does not optimize turn or river betting as part of the same solve.
+The configured flop betting street is strategic. Turn and river cards are sampled, but later streets check through.
 
 ### Turn
 
-The turn mode solves the configured turn betting street. It samples the river card and assumes no river betting.
+The configured turn betting street is strategic. The river is sampled and checks through.
 
 ### River
 
-The river mode has no future public cards. The complete configured restricted tree can be evaluated exactly, including exact information-consistent best responses and exploitability.
+There are no future public cards. The complete configured finite tree is evaluated exactly, including information-consistent best responses and exploitability.
 
-## What a commercial multi-street system adds
+## What is not implemented
 
-A commercial solver and instant-solution platform may include several layers beyond a browser-based regret minimizer:
+- full limp/open/call/3-bet/4-bet/5-bet preflop trees;
+- six-max or multiway CFR+ game trees;
+- strategic betting across several postflop streets in one solve;
+- postflop raises;
+- rake, tournament ICM, or asymmetric stacks;
+- node locking, range locking, saved cloud solutions, or a precomputed database;
+- distributed, GPU, native, or WebAssembly compute.
 
-1. **A much richer preflop tree.** Limp, open, call, squeeze, 3-bet, 4-bet, 5-bet, and multiple all-in branches across several positions and stack depths.
-2. **Repeated postflop betting rounds.** Flop actions lead to strategic turn nodes, which lead to strategic river nodes.
-3. **Multiple raises at many nodes.** Every additional size multiplies the public game tree.
-4. **Public chance decomposition.** Different turn and river cards create many strategically distinct subgames.
-5. **Card abstraction or enormous enumeration.** Raw no-limit Hold'em is too large for an unrestricted exact browser solve.
-6. **Subgame decomposition and continual re-solving.** Practical systems split the public tree and solve smaller regions while preserving boundary values.
-7. **Large precomputed solution libraries.** Instant lookup generally means substantial solutions were computed in advance.
-8. **Accelerated or distributed compute.** Native kernels, SIMD, WebAssembly, GPUs, and clusters can support higher-resolution trees.
-9. **Product tooling.** Node locking, aggregate reports, saved trees, hand-history review, drills, database search, and cloud sharing are separate product layers.
+## Difference from a commercial platform
 
-## Why the river remains the exact reference mode
+A commercial instant-solution product typically combines richer betting trees, public-state decomposition, abstraction, accelerated compute, and a large precomputed solution library. This project instead keeps its code, assumptions, and accuracy labels inspectable and runs in a static browser site.
 
-The river has no future chance cards. This allows the project to keep all of the following exact simultaneously:
+The interface uses common poker-study interaction patterns—street tabs, configuration controls, decision nodes, action-colored matrices, and combo details—but does not include proprietary code, assets, APIs, or solution data from GTO Wizard or another commercial solver.
 
-- suit-level private combos;
-- blocker effects;
-- seven-card showdown ordering;
-- every terminal payoff in the configured tree;
-- profile expected value;
-- one information-consistent pure best response for every private holding and public history.
+## Deployment scope
 
-Preflop, flop, and turn reuse the same exact card model but estimate chance and best-response values through independent sampling. Their exported results include the sample count and profile standard error rather than presenting the number as exact.
+The Pages artifact loads only:
 
-## Interface similarity and originality
+- a compact Poker Solver header;
+- the solution builder;
+- the progress/result workspace;
+- the shared solver modules and styles required by that workspace.
 
-The revised interface uses a workflow common to poker study tools:
-
-- starting-street tabs;
-- a left-side solution builder;
-- presets, ranges, stack, pot, and betting-tree controls;
-- a decision-node browser;
-- action-colored 13×13 range matrices;
-- combo-level details and export.
-
-The layout and styling are original to this repository. No proprietary GTO Wizard code, visual assets, solution data, or internal APIs are included.
-
-## Next technically defensible extensions
-
-1. Add river raise sizes and preserve exact best-response tests.
-2. Expand preflop from push/fold to configurable open/call/3-bet trees.
-3. Add range and node locking.
-4. Add strategic river subgames beneath turn nodes.
-5. Add strategic turn and river subgames beneath flop nodes.
-6. Move larger traversal kernels to WebAssembly.
-7. Add external-sampling MCCFR and public-state decomposition.
-8. Add rake, tournament utility, multiway play, and saved solution formats.
-
-Each extension should retain small exact regression games so that performance improvements do not silently change the modeled game.
-
-## Responsible use and affiliation
-
-Poker Solver is independent open-source software intended for off-table research and education. “GTO Wizard” is referenced only to describe the category of study workflow requested for the project. The software should not be used for prohibited real-time assistance during live or online play.
+The former hero, methodology, and footer fragments are not part of the deployed site.
