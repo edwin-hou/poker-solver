@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-08-09T07:12:11.934Z",
+  "rows": [
+    {
+      "name": "ace-high-default",
+      "board": "Ah Kd 7c 4s 2d",
+      "iterations": 500000,
+      "oopCombos": 276,
+      "ipCombos": 413,
+      "compatibleDealWeight": 100527,
+      "runtimeMs": 793.5701030000001,
+      "profileValueOop": -1.2854434410309838,
+      "bestResponseValueOop": -0.19748204690033105,
+      "bestResponseValueIp": 2.0604872355256116,
+      "nashConv": 2.2579692824259425,
+      "exploitability": 1.1289846412129712,
+      "exploitabilityPctPot": 1.1289846412129712
+    },
+    {
+      "name": "polar-regression",
+      "board": "2c 3d 7h 8s Kc",
+      "iterations": 80000,
+      "oopCombos": 15,
+      "ipCombos": 15,
+      "compatibleDealWeight": 222,
+      "runtimeMs": 66.09205999999994,
+      "profileValueOop": 45.71893901551989,
+      "bestResponseValueOop": 45.81279117166492,
+      "bestResponseValueIp": -44.90828425078696,
+      "nashConv": 0.9045069208779566,
+      "exploitability": 0.4522534604389783,
+      "exploitabilityPctPot": 0.4522534604389783
+    }
+  ]
+}

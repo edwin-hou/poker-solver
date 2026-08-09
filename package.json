@@ -1,0 +1,17 @@
+{
+  "name": "holdem-gto-solver",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based combo-level CFR+ solver for heads-up two-card Texas Hold'em river spots",
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build-site.mjs",
+    "serve": "node scripts/serve.mjs",
+    "benchmark": "node scripts/benchmark.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
