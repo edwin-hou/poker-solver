@@ -1,4 +1,4 @@
-const fragments = ["chrome.html", "solver-config.html", "solver-results.html"];
+const fragments = ["solver-config.html", "solver-results.html"];
 
 const root = document.querySelector("#page-root");
 
@@ -14,6 +14,7 @@ try {
 
   root.outerHTML = responses.join("");
   await import("./app.js");
+  await import("./builder-only.js");
 } catch (error) {
   console.error("Poker Solver failed to start", error);
   if (root) {

@@ -146,7 +146,7 @@ test("an approximate preflop chart renders without inventing exploitability", ()
   assert.match(elements.accuracyNote.textContent, /Approximate chart test/);
 });
 
-test("repository-root Pages publishing contains only the solver app", async () => {
+test("repository-root Pages publishing exposes only one solution-builder workspace", async () => {
   const redirect = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   assert.match(redirect, /\.\/site\//);
 
@@ -154,10 +154,22 @@ test("repository-root Pages publishing contains only the solver app", async () =
   const worker = await readFile(new URL("../dist/site/solver-worker.js", import.meta.url), "utf8");
   const index = await readFile(new URL("../dist/site/index.html", import.meta.url), "utf8");
   const boot = await readFile(new URL("../dist/site/boot.js", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../dist/site/builder-only.js", import.meta.url), "utf8");
+  const output = await readFile(new URL("../dist/site/partials/solver-results.html", import.meta.url), "utf8");
+
   assert.match(app, /\.\.\/src\/index\.js/);
   assert.match(worker, /\.\.\/src\/solve\.js/);
   assert.match(index, /solver-only\.css/);
-  assert.doesNotMatch(boot, /hero\.html|method\.html|footer\.html/);
+  assert.doesNotMatch(boot, /chrome\.html|hero\.html|method\.html|footer\.html/);
   assert.match(boot, /solver-config\.html/);
   assert.match(boot, /solver-results\.html/);
+  assert.match(boot, /builder-only\.js/);
+  assert.match(workspace, /showBuilder/);
+  assert.match(workspace, /resolve-button/);
+  assert.match(output, /id="results-panel"[^>]*hidden/);
+  assert.doesNotMatch(output, /placeholder-orbit|Your strategy matrix will appear here|placeholder-facts/);
+  await assert.rejects(
+    readFile(new URL("../dist/site/partials/chrome.html", import.meta.url), "utf8"),
+    /ENOENT/,
+  );
 });
