@@ -1,11 +1,4 @@
-const fragments = [
-  "chrome.html",
-  "hero.html",
-  "solver-config.html",
-  "solver-results.html",
-  "method.html",
-  "footer.html",
-];
+const fragments = ["chrome.html", "solver-config.html", "solver-results.html"];
 
 const root = document.querySelector("#page-root");
 

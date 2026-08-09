@@ -1,52 +1,64 @@
-# Poker Solver — browser-based Hold'em GTO study solver
+# Poker Solver
 
 [![CI](https://github.com/edwin-hou/poker-solver/actions/workflows/ci.yml/badge.svg)](https://github.com/edwin-hou/poker-solver/actions/workflows/ci.yml)
 [![Deploy GitHub Pages](https://github.com/edwin-hou/poker-solver/actions/workflows/pages.yml/badge.svg)](https://github.com/edwin-hou/poker-solver/actions/workflows/pages.yml)
 
 **Live solver:** <https://edwin-hou.github.io/poker-solver/>
 
-Poker Solver is an open-source, combo-level CFR+ study tool for **heads-up, two-card Texas Hold'em from preflop through river**. It runs entirely in the browser, accepts weighted Hold'em ranges, expands them into exact suit combinations, applies card removal, and presents strategies in a 13×13 matrix with combo-level inspection.
+Poker Solver is a focused browser application for studying two-card Texas Hold'em. The GitHub Pages site opens directly into the solver—there is no landing page, marketing section, methodology page, or footer before the workspace.
 
-The interface follows the familiar workflow of modern poker study software—choose a street, configure a spot, solve it, and inspect the resulting range—without copying GTO Wizard's proprietary code, assets, solution database, or precomputed strategies.
+Everything runs locally in a Web Worker. Cards, ranges, and strategies are not uploaded to a server.
 
-## Solving modes
+## Preflop modes
 
-| Starting street | Current hosted model | Future-card treatment | Evaluation |
-|---|---|---|---|
-| **Preflop** | Heads-up SB fold/jam and BB fold/call | Called hands sample a complete five-card board | Monte Carlo profile EV and information-consistent best-response estimate |
-| **Flop** | One configured OOP/IP betting street with check, multiple bet sizes, fold, and call | Samples turn and river cards; no later-street betting | Monte Carlo profile EV and best-response estimate |
-| **Turn** | One configured OOP/IP betting street with check, multiple bet sizes, fold, and call | Samples the river card; no river betting | Monte Carlo profile EV and best-response estimate |
-| **River** | Complete configured check/bet/fold/call tree | No future cards | Exact profile EV, exact pure best responses, NashConv, and exploitability |
+### Approximate six-max charts
 
-These are deliberately bounded browser-scale abstractions. “Preflop through river” means that every starting street is available in the solution builder; it does **not** mean that one monolithic no-limit tree containing every action on every street is being solved.
+The default preflop mode provides instant position-aware charts for:
 
-## What is genuinely modeled
+- open first in;
+- facing an open;
+- facing a 3-bet.
 
-- A full 52-card deck.
-- Two private hole cards per player.
-- Standard 169-class range notation expanded into exact suit combinations.
-- Weighted range frequencies and explicit combos.
-- Board blockers and cross-player card removal.
-- Exact best-five-of-seven Hold'em showdown evaluation.
-- User-defined postflop pot, effective stack, and multiple bet sizes.
-- User-defined preflop blinds, ante, and effective stack.
-- Chance-sampled CFR+ training with linear averaging.
-- A Web Worker so long solves do not freeze the interface.
-- 13×13 strategy grids, exact combo inspection, decision-node navigation, and JSON export.
+Inputs include hero position, opener or 3-bettor position, stack depth, and open size. The engine uses transparent lookup targets and hand-class scoring to generate fold, call, limp, raise, 3-bet, and 4-bet frequencies across all 169 starting-hand classes. It then expands each class into exact suit combinations for the shared combo inspector.
 
-## Hosted model limits
+This mode is deliberately labeled **approximate**. It does not report EV, NashConv, or exploitability, because those quantities are not solved by the lookup model. The charts are original heuristic approximations rather than copied proprietary solver outputs.
 
-The current project is a serious educational solver, not a replacement for a commercial distributed solving platform.
+### Heads-up push/fold CFR+
 
-- Preflop is push/fold rather than a full limp/open/3-bet/4-bet tree.
-- Flop and turn solve the selected street only; future cards are sampled and checked down.
-- Postflop raises are not yet included.
-- There is no multiway play, rake, tournament ICM, node locking, saved cloud solution library, or distributed backend.
-- River is the only mode whose reported exploitability is exact for the configured tree. Earlier-street numbers are explicitly labeled Monte Carlo estimates.
+The second preflop mode retains the sampled CFR+ game:
 
-See [docs/SCOPE.md](docs/SCOPE.md) for the architectural gap between this project and commercial multi-street solvers.
+```text
+SB: fold or jam
+BB versus jam: fold or call
+called hands: sampled five-card runout
+```
 
-## Quick start
+Blinds, ante, effective stack, ranges, iterations, and evaluation samples are configurable.
+
+## Postflop modes
+
+| Street | Hosted abstraction | Evaluation |
+|---|---|---|
+| Flop | One configured betting street; sampled turn and river check-down | Monte Carlo estimate |
+| Turn | One configured betting street; sampled river check-down | Monte Carlo estimate |
+| River | Complete configured check/bet/fold/call tree | Exact for the finite tree |
+
+The card model uses a full 52-card deck, exact two-card combinations, exact public-card blockers, and exact best-five-of-seven showdown evaluation.
+
+## Interface
+
+The solver-only workspace contains:
+
+- Preflop, Flop, Turn, and River tabs;
+- street-specific presets;
+- position, stack, pot, board, range, and bet-size controls;
+- action-colored 13×13 strategy matrices;
+- exact suit-combination inspection;
+- decision-node navigation;
+- JSON export;
+- explicit exact-versus-estimated accuracy labels.
+
+## Local development
 
 ```bash
 git clone https://github.com/edwin-hou/poker-solver.git
@@ -56,9 +68,9 @@ npm test
 npm run serve
 ```
 
-Then open <http://localhost:8000>.
+Open <http://localhost:8000>.
 
-There are no front-end framework or runtime-server dependencies. `npm run build` creates the static GitHub Pages artifact in `dist/`.
+The application has no front-end framework or runtime backend dependency. `npm run build` creates the static Pages artifact in `dist/`.
 
 ## Range notation
 
@@ -76,128 +88,45 @@ AKo@0.25
 random
 ```
 
-Weights may be expressed from `0` to `1` or as percentages. Public-card blockers are removed automatically.
-
-## Using the hosted solver
-
-1. Select **Preflop**, **Flop**, **Turn**, or **River**.
-2. Choose a preset or edit the spot manually.
-3. Enter both players' weighted ranges.
-4. Configure blinds and stack preflop, or board, pot, stack, and bet sizes postflop.
-5. Choose the iteration count and evaluation sample count.
-6. Click **Build & solve**.
-7. Navigate decision nodes and inspect the action-colored range matrix.
-8. Click a hand class to view exact suit combinations and mixed frequencies.
-9. Export the complete result as JSON when needed.
-
-## CFR+ implementation
-
-At every sampled compatible private-card deal, Poker Solver:
-
-1. Converts nonnegative cumulative regret into the current behavioral strategy.
-2. Samples future public cards when the solve begins before the river.
-3. Evaluates every legal action in the configured abstraction.
-4. Updates counterfactual regrets using the opponent's reach probability.
-5. Clips cumulative regrets at zero, as in CFR+.
-6. Accumulates a linearly weighted average strategy after a configurable delay.
-
-The river engine enumerates its finite game exactly for profile and best-response evaluation. The preflop, flop, and turn engines use independent Monte Carlo samples for strategy evaluation and information-consistent best-response estimates.
-
-See [docs/ALGORITHM.md](docs/ALGORITHM.md) for game definitions, payoff conventions, and evaluation details.
-
-## Exact versus estimated exploitability
-
-For a two-player zero-sum profile $\sigma$, the project reports
-
-```text
-NashConv = BR_0(σ_1) - u_0(σ) + BR_1(σ_0) - u_1(σ)
-exploitability = NashConv / 2
-```
-
-- **River:** exact for the configured finite abstraction.
-- **Preflop, flop, and turn:** a Monte Carlo estimate, accompanied by the evaluation sample count and profile-value standard error.
-
-Lower is better. Zero represents a Nash equilibrium of the modeled abstraction, not necessarily of unrestricted no-limit Hold'em.
-
 ## Project layout
 
 ```text
 src/
-  cards.js             card parsing and exact five/seven-card evaluation
-  range.js             169-class notation and exact combo expansion
-  solver.js            exact finite river solver
-  preflop-solver.js    heads-up push/fold CFR+
-  postflop-solver.js   sampled single-street flop and turn CFR+
-  solve.js             unified preflop/flop/turn/river dispatcher
-  evaluation.js        exact river profile and best-response evaluation
+  cards.js              exact card and hand evaluation
+  range.js              range parsing and combo expansion
+  preflop-lookup.js     approximate six-max chart engine
+  preflop-solver.js     heads-up push/fold CFR+
+  postflop-solver.js    sampled flop and turn engines
+  solver.js             exact finite-tree river engine
+  solve.js              unified dispatcher
 site/
-  index.html           hosted study interface
-  app.js               street builder, presets, worker orchestration
-  result-view.js       range matrix and combo-level result rendering
-  solver-worker.js     background solving entry point
+  app.js                solver workspace controller
+  result-view.js        matrix and combo rendering
+  solver-worker.js      browser worker entry point
+  partials/              solver configuration and results only
   styles/
-scripts/
-  build-site.mjs
-  serve.mjs
-  benchmark.mjs
 test/
   all-streets.test.js
-  cards.test.js
-  range.test.js
-  solver.test.js
+  preflop-lookup.test.js
   site-result-view.test.js
-docs/
-  ALGORITHM.md
-  SCOPE.md
 ```
 
-## Tests
+## Accuracy and scope
 
-```bash
-npm test
-```
+Poker Solver is an educational browser-scale project, not a replacement for a distributed commercial solving platform.
 
-The command builds the Pages artifact and then tests:
+- The normal preflop charts are approximations.
+- The CFR+ preflop tree is heads-up push/fold only.
+- Flop and turn do not optimize later-street betting.
+- Postflop raises are not yet included.
+- There is no multiway play, rake, ICM, node locking, or cloud solution database.
+- River exploitability is exact only for its configured restricted tree.
 
-- card parsing and every major poker hand category;
-- exact seven-card best-hand selection;
-- range notation, weights, and blockers;
-- preflop push/fold strategy generation;
-- flop and turn future-card sampling;
-- preservation of the exact river engine;
-- decreasing river exploitability with more CFR+ training;
-- completed-solve rendering and GitHub Pages asset paths.
-
-GitHub Actions runs the suite on Node 22 and Node 24.
-
-## GitHub Pages deployment
-
-The repository supports both common publishing modes:
-
-- **Recommended:** **Settings → Pages → Source → GitHub Actions**. The workflow at [`.github/workflows/pages.yml`](.github/workflows/pages.yml) tests, builds, uploads, and deploys `dist/`.
-- **Branch fallback:** publishing `main` from `/ (root)` loads the repository-level redirect and opens `site/`.
-
-See [PAGES_ACTIVATION.md](PAGES_ACTIVATION.md) for the one-time setup.
+See [docs/SCOPE.md](docs/SCOPE.md) and [docs/ALGORITHM.md](docs/ALGORITHM.md) for the precise game definitions.
 
 ## Responsible use
 
-Poker Solver is intended for off-table research, education, and strategy study. Do not use it to obtain assistance during live or online play where doing so violates platform rules or applicable law.
-
-## Roadmap
-
-- Add limp, raise, 3-bet, 4-bet, and configurable all-in branches preflop.
-- Add one or more postflop raise sizes.
-- Add range locking and node locking.
-- Add true turn-to-river and flop-to-river betting subgames.
-- Add public-state decomposition and continual re-solving.
-- Add external-sampling MCCFR and optional WebAssembly kernels.
-- Add saved configurations, shareable solution files, rake, and tournament utility models.
-
-## References
-
-- Martin Zinkevich, Michael Johanson, Michael Bowling, and Carmelo Piccione, “Regret Minimization in Games with Incomplete Information,” NeurIPS 2007.
-- Oskari Tammelin, “Solving Large Imperfect Information Games Using CFR+,” 2014.
-- Matej Moravčík et al., “DeepStack: Expert-Level Artificial Intelligence in Heads-Up No-Limit Poker,” 2017.
+Use Poker Solver for off-table study and research. Do not use it for assistance during live or online play where doing so violates platform rules or applicable law.
 
 ## License
 

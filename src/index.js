@@ -3,4 +3,5 @@ export * from "./range.js";
 export * from "./solver.js";
 export * from "./postflop-solver.js";
 export * from "./preflop-solver.js";
+export * from "./preflop-lookup.js";
 export * from "./solve.js";

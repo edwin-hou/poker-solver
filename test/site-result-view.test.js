@@ -95,14 +95,69 @@ test("a completed all-street browser solve renders its strategy workspace", () =
   assert.match(elements.metricExploitabilityLabel.textContent, /MC/);
 });
 
-test("repository-root Pages publishing preserves app and shared solver paths", async () => {
+test("an approximate preflop chart renders without inventing exploitability", () => {
+  globalThis.CSS = globalThis.CSS ?? { escape: (value) => String(value) };
+  const elements = fakeElements();
+  initializeResultView(elements);
+
+  const result = {
+    abstraction: { street: "preflop", mode: "lookup" },
+    config: {
+      board: [],
+      heroPosition: "BTN",
+      villainPosition: "BB",
+      preflopSpot: "rfi",
+      pot: null,
+    },
+    evaluation: { exact: false, exploitability: null, profileValueOop: null },
+    lookup: {
+      targetContinueFrequency: 0.47,
+      note: "Approximate chart test",
+    },
+    ranges: { hero: { comboCount: 6 } },
+    compatibleDealWeight: 12,
+    iterations: 0,
+    runtimeMs: 3,
+    nodes: [
+      {
+        id: "preflop-lookup-root",
+        label: "BTN open first in · 100bb",
+        player: "BTN",
+        actionLabels: ["Fold", "Raise 2.5bb"],
+        combos: [
+          {
+            cards: [48, 49],
+            classLabel: "AA",
+            display: "AcAd",
+            weight: 1,
+            category: "Pocket pair",
+          },
+        ],
+        strategies: [[0, 1]],
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => renderResult(result));
+  assert.equal(elements.resultStreet.textContent, "PREFLOP");
+  assert.equal(elements.metricExploitability.textContent, "Lookup");
+  assert.equal(elements.metricExploitabilityLabel.textContent, "Model");
+  assert.match(elements.metricOopEv.textContent, /47/);
+  assert.match(elements.accuracyNote.textContent, /Approximate chart test/);
+});
+
+test("repository-root Pages publishing contains only the solver app", async () => {
   const redirect = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   assert.match(redirect, /\.\/site\//);
 
   const app = await readFile(new URL("../dist/site/app.js", import.meta.url), "utf8");
   const worker = await readFile(new URL("../dist/site/solver-worker.js", import.meta.url), "utf8");
   const index = await readFile(new URL("../dist/site/index.html", import.meta.url), "utf8");
+  const boot = await readFile(new URL("../dist/site/boot.js", import.meta.url), "utf8");
   assert.match(app, /\.\.\/src\/index\.js/);
   assert.match(worker, /\.\.\/src\/solve\.js/);
-  assert.match(index, /wizard\.css/);
+  assert.match(index, /solver-only\.css/);
+  assert.doesNotMatch(boot, /hero\.html|method\.html|footer\.html/);
+  assert.match(boot, /solver-config\.html/);
+  assert.match(boot, /solver-results\.html/);
 });

@@ -30,9 +30,20 @@ const elements = {
   preflopSetup: $("#preflop-setup"),
   postflopBetting: $("#postflop-betting"),
   preflopBetting: $("#preflop-betting"),
+  preflopTreeNote: $("#preflop-tree-note"),
+  preflopModel: $("#preflop-model"),
+  preflopLookupSetup: $("#preflop-lookup-setup"),
+  preflopPushfoldSetup: $("#preflop-pushfold-setup"),
+  preflopSpot: $("#preflop-spot"),
+  heroPosition: $("#hero-position"),
+  villainPosition: $("#villain-position"),
+  villainPositionField: $("#villain-position-field"),
+  lookupStack: $("#lookup-stack"),
+  openSize: $("#open-size"),
+  rangeEditor: $("#range-editor"),
+  accuracySettings: $("#accuracy-settings"),
+  lookupAccuracyNote: $("#lookup-accuracy-note"),
   board: $("#board"),
-  boardFieldLabel: $("#board-field-label"),
-  boardHelp: $("#board-help"),
   pot: $("#pot"),
   stack: $("#stack"),
   smallBlind: $("#small-blind"),
@@ -45,6 +56,8 @@ const elements = {
   ipRangeLabel: $("#ip-range-label"),
   oopPositionChip: $("#oop-position-chip"),
   ipPositionChip: $("#ip-position-chip"),
+  boardFieldLabel: $("#board-field-label"),
+  boardHelp: $("#board-help"),
   oopBets: $("#oop-bets"),
   ipBets: $("#ip-bets"),
   iterations: $("#iterations"),
@@ -57,6 +70,7 @@ const elements = {
   treePreview: $("#tree-preview"),
   error: $("#form-error"),
   solveButton: $("#solve-button"),
+  solveButtonLabel: $("#solve-button-label"),
   cancelButton: $("#cancel-button"),
   resetButton: $("#reset-button"),
   placeholder: $("#results-placeholder"),
@@ -88,30 +102,13 @@ const elements = {
   exportButton: $("#export-button"),
   resolveButton: $("#resolve-button"),
   accuracyNote: $("#accuracy-note"),
-  heroGrid: $("#hero-grid"),
 };
 
 let worker = null;
 let rangeDebounce = null;
 
-function initializeHeroGrid() {
-  const fragments = [];
-  for (let row = 0; row < 13; row += 1) {
-    for (let column = 0; column < 13; column += 1) {
-      const strength = (12 - Math.min(row, column)) / 12;
-      const bluff = ((row * 17 + column * 11) % 23) / 23;
-      const check = Math.max(0.08, 0.72 - strength * 0.48 + bluff * 0.18);
-      const small = Math.max(0.04, 0.17 + (1 - Math.abs(strength - 0.5) * 2) * 0.24);
-      const large = Math.max(0.04, 1 - check - small);
-      const total = check + small + large;
-      const first = (check / total) * 100;
-      const second = first + (small / total) * 100;
-      fragments.push(
-        `<span class="mini-cell" style="background:linear-gradient(90deg,var(--action-0) 0 ${first.toFixed(1)}%,var(--action-1) ${first.toFixed(1)}% ${second.toFixed(1)}%,var(--action-2) ${second.toFixed(1)}% 100%)"></span>`,
-      );
-    }
-  }
-  elements.heroGrid.innerHTML = fragments.join("");
+function isLookupMode() {
+  return elements.street.value === "preflop" && elements.preflopModel.value === "lookup";
 }
 
 function createWorker() {
@@ -128,15 +125,22 @@ function handleWorkerMessage(event) {
   if (message.type === "progress") {
     const { iteration, target, fraction } = message.progress;
     const street = elements.street.value;
-    elements.progressTitle.textContent = `Solving ${STREET_META[street].label.toLowerCase()} strategy…`;
-    elements.progressDetail.textContent =
-      street === "preflop"
-        ? "Sampling two-card deals and five-card boards while updating push/fold regrets."
-        : street === "river"
-          ? "Updating exact river counterfactual regrets."
-          : "Sampling compatible deals and future public runouts while updating regrets.";
+    if (isLookupMode()) {
+      elements.progressTitle.textContent = "Generating preflop chart…";
+      elements.progressDetail.textContent = "Applying position, stack, price, and hand-class lookup targets.";
+    } else {
+      elements.progressTitle.textContent = `Solving ${STREET_META[street].label.toLowerCase()} strategy…`;
+      elements.progressDetail.textContent =
+        street === "preflop"
+          ? "Sampling two-card deals and five-card boards while updating push/fold regrets."
+          : street === "river"
+            ? "Updating exact river counterfactual regrets."
+            : "Sampling compatible deals and future public runouts while updating regrets.";
+    }
     elements.progressBar.style.width = `${Math.max(0, Math.min(100, fraction * 100))}%`;
-    elements.progressIterations.textContent = `${number.format(iteration)} / ${number.format(target)} iterations`;
+    elements.progressIterations.textContent = isLookupMode()
+      ? "Lookup complete"
+      : `${number.format(iteration)} / ${number.format(target)} iterations`;
     elements.progressPercent.textContent = `${Math.floor(fraction * 100)}%`;
     return;
   }
@@ -164,13 +168,16 @@ function showProgress() {
   elements.placeholder.hidden = true;
   elements.resultsView.hidden = true;
   elements.progressView.hidden = false;
-  elements.progressTitle.textContent = `Building ${STREET_META[street].label.toLowerCase()} game…`;
-  elements.progressDetail.textContent =
-    street === "preflop"
+  elements.progressTitle.textContent = isLookupMode()
+    ? "Building approximate preflop chart…"
+    : `Building ${STREET_META[street].label.toLowerCase()} game…`;
+  elements.progressDetail.textContent = isLookupMode()
+    ? "Preparing the 169-class matrix and exact two-card combinations."
+    : street === "preflop"
       ? "Expanding SB and BB ranges, blinds, and the push/fold game."
       : "Applying board blockers and preparing exact two-card combinations.";
   elements.progressBar.style.width = "1%";
-  elements.progressIterations.textContent = "Preparing ranges";
+  elements.progressIterations.textContent = "Preparing";
   elements.progressPercent.textContent = "0%";
 }
 
@@ -186,58 +193,108 @@ function finishWithError(message) {
   showPlaceholder();
 }
 
+function updatePreflopControls() {
+  const preflop = elements.street.value === "preflop";
+  const lookup = preflop && elements.preflopModel.value === "lookup";
+  elements.preflopLookupSetup.hidden = !lookup;
+  elements.preflopPushfoldSetup.hidden = !preflop || lookup;
+  elements.rangeEditor.hidden = lookup;
+  elements.accuracySettings.hidden = lookup;
+  elements.lookupAccuracyNote.hidden = !lookup;
+  elements.villainPositionField.hidden = lookup && elements.preflopSpot.value === "rfi";
+
+  if (lookup) {
+    elements.oopRange.value = "random";
+    elements.ipRange.value = "random";
+    elements.solveButtonLabel.textContent = "Show preflop chart";
+    elements.preflopTreeNote.textContent =
+      elements.preflopSpot.value === "rfi"
+        ? "Open-first-in chart with position- and stack-adjusted frequencies."
+        : elements.preflopSpot.value === "vs-open"
+          ? "Facing-open chart: fold, call, or 3-bet."
+          : "Facing-3-bet chart: fold, call, or 4-bet.";
+    elements.oopRangeLabel.textContent = "Hero chart coverage";
+    elements.ipRangeLabel.textContent = "Villain chart coverage";
+    elements.oopPositionChip.textContent = elements.heroPosition.value;
+    elements.ipPositionChip.textContent = elements.villainPosition.value;
+    return;
+  }
+
+  if (preflop) {
+    elements.solveButtonLabel.textContent = "Run push/fold solve";
+    elements.oopRangeLabel.textContent = "SB range";
+    elements.ipRangeLabel.textContent = "BB range";
+    elements.oopPositionChip.textContent = "SB";
+    elements.ipPositionChip.textContent = "BB";
+    elements.preflopTreeNote.textContent = "Heads-up SB fold/jam and BB fold/call CFR+ tree.";
+    return;
+  }
+
+  elements.solveButtonLabel.textContent = "Build & solve";
+  elements.oopRangeLabel.textContent = "OOP range";
+  elements.ipRangeLabel.textContent = "IP range";
+  elements.oopPositionChip.textContent = "OOP";
+  elements.ipPositionChip.textContent = "IP";
+}
+
 function setStreet(street, { updateScenario = false } = {}) {
-  if (!(street in STREET_META)) street = "flop";
+  if (!(street in STREET_META)) street = "preflop";
   elements.street.value = street;
   for (const button of elements.streetTabs) {
     const active = button.dataset.street === street;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
   }
+
   const preflop = street === "preflop";
   elements.preflopSetup.hidden = !preflop;
   elements.preflopBetting.hidden = !preflop;
   elements.postflopSetup.hidden = preflop;
   elements.postflopBetting.hidden = preflop;
 
-  const [firstPosition, secondPosition] = STREET_META[street].positions;
-  elements.oopRangeLabel.textContent = `${firstPosition} range`;
-  elements.ipRangeLabel.textContent = `${secondPosition} range`;
-  elements.oopPositionChip.textContent = firstPosition;
-  elements.ipPositionChip.textContent = secondPosition;
   elements.boardFieldLabel.textContent = `${STREET_META[street].label} board`;
   const count = STREET_META[street].boardCards;
   elements.boardHelp.textContent = count
     ? `Enter exactly ${count} unique card${count === 1 ? "" : "s"}.`
     : "No board cards preflop.";
 
-  if (updateScenario) setScenario(DEFAULT_SCENARIO_BY_STREET[street], { updateStreet: false });
-  else refreshInputs();
+  if (updateScenario) {
+    setScenario(DEFAULT_SCENARIO_BY_STREET[street], { updateStreet: false });
+    return;
+  }
+  updatePreflopControls();
 }
 
 function setScenario(name, { updateStreet = true } = {}) {
-  const scenario = SCENARIOS[name] ?? SCENARIOS["flop-srp"];
+  const scenario = SCENARIOS[name] ?? SCENARIOS["preflop-btn-rfi"];
   if (updateStreet) setStreet(scenario.street, { updateScenario: false });
   elements.scenario.value = name in SCENARIOS ? name : DEFAULT_SCENARIO_BY_STREET[scenario.street];
   elements.board.value = scenario.board ?? "";
-  elements.oopRange.value = scenario.oopRange;
-  elements.ipRange.value = scenario.ipRange;
-  elements.iterations.value = scenario.iterations;
-  elements.evaluationSamples.value = scenario.evaluationSamples;
-  elements.averagingDelay.value = scenario.averagingDelay;
-  elements.seed.value = scenario.seed;
+  elements.oopRange.value = scenario.oopRange ?? "random";
+  elements.ipRange.value = scenario.ipRange ?? "random";
+  elements.iterations.value = scenario.iterations ?? 220_000;
+  elements.evaluationSamples.value = scenario.evaluationSamples ?? 24_000;
+  elements.averagingDelay.value = scenario.averagingDelay ?? 3_000;
+  elements.seed.value = scenario.seed ?? 20_260_812;
 
   if (scenario.street === "preflop") {
-    elements.smallBlind.value = scenario.smallBlind;
-    elements.bigBlind.value = scenario.bigBlind;
-    elements.ante.value = scenario.ante;
-    elements.preflopStack.value = scenario.stack;
+    elements.preflopModel.value = scenario.preflopMode ?? "lookup";
+    elements.preflopSpot.value = scenario.preflopSpot ?? "rfi";
+    elements.heroPosition.value = scenario.heroPosition ?? "BTN";
+    elements.villainPosition.value = scenario.villainPosition ?? "BB";
+    elements.lookupStack.value = scenario.stack ?? 100;
+    elements.openSize.value = scenario.openSize ?? 2.5;
+    elements.smallBlind.value = scenario.smallBlind ?? 0.5;
+    elements.bigBlind.value = scenario.bigBlind ?? 1;
+    elements.ante.value = scenario.ante ?? 0;
+    elements.preflopStack.value = scenario.stack ?? 10;
   } else {
     elements.pot.value = scenario.pot;
     elements.stack.value = scenario.stack;
     elements.oopBets.value = scenario.oopBets;
     elements.ipBets.value = scenario.ipBets;
   }
+  updatePreflopControls();
   refreshInputs();
 }
 
@@ -251,9 +308,26 @@ function readConfig() {
     seed: Number(elements.seed.value),
     progressEvery: 5_000,
   };
+
+  if (street === "preflop" && elements.preflopModel.value === "lookup") {
+    return {
+      street,
+      preflopMode: "lookup",
+      preflopSpot: elements.preflopSpot.value,
+      heroPosition: elements.heroPosition.value,
+      villainPosition: elements.villainPosition.value,
+      stack: Number(elements.lookupStack.value),
+      openSize: Number(elements.openSize.value),
+      heroRange: "random",
+      villainRange: "random",
+      seed: Number(elements.seed.value),
+    };
+  }
+
   if (street === "preflop") {
     return {
       ...common,
+      preflopMode: "push-fold",
       sbRange: elements.oopRange.value,
       bbRange: elements.ipRange.value,
       smallBlind: Number(elements.smallBlind.value),
@@ -262,6 +336,7 @@ function readConfig() {
       stack: Number(elements.preflopStack.value),
     };
   }
+
   return {
     ...common,
     board: elements.board.value,
@@ -276,6 +351,8 @@ function readConfig() {
 
 function validateBeforeSolve(config) {
   const normalized = validatePokerConfig(config);
+  if (config.street === "preflop" && config.preflopMode === "lookup") return normalized;
+
   const blocked = normalized.board ?? [];
   const firstRange = config.street === "preflop" ? config.sbRange : config.oopRange;
   const secondRange = config.street === "preflop" ? config.bbRange : config.ipRange;
@@ -297,7 +374,7 @@ function beginSolve(event) {
     return;
   }
   elements.solveButton.disabled = true;
-  elements.cancelButton.hidden = false;
+  elements.cancelButton.hidden = isLookupMode();
   showProgress();
   createWorker();
   worker.postMessage({ type: "solve", config });
@@ -313,6 +390,7 @@ function cancelSolve() {
 function refreshInputs() {
   elements.iterationsOutput.value = number.format(Number(elements.iterations.value));
   elements.iterationsOutput.textContent = number.format(Number(elements.iterations.value));
+  updatePreflopControls();
   window.clearTimeout(rangeDebounce);
   rangeDebounce = window.setTimeout(updateRangeCounts, 120);
   updateTreePreview();
@@ -324,6 +402,7 @@ function currentBoard() {
 }
 
 function updateRangeCounts() {
+  if (elements.rangeEditor.hidden) return;
   try {
     const board = currentBoard();
     updateRangeCount(elements.oopRange, elements.oopRangeCount, board);
@@ -348,6 +427,34 @@ function updateRangeCount(input, output, board) {
 
 function updateTreePreview() {
   try {
+    if (elements.street.value === "preflop" && elements.preflopModel.value === "lookup") {
+      const hero = elements.heroPosition.value;
+      const villain = elements.villainPosition.value;
+      const stack = formatFloat(Number(elements.lookupStack.value));
+      const size = formatFloat(Number(elements.openSize.value));
+      const spot = elements.preflopSpot.value;
+      const lines =
+        spot === "rfi"
+          ? [
+              `<div class="tree-line"><i></i><strong>${hero}</strong><span>${hero === "SB" ? `Fold · Limp · Raise ${size}bb` : `Fold · Raise ${size}bb`}</span></div>`,
+              `<div class="tree-line"><i></i><strong>Depth</strong><span>${stack}bb approximate opening chart</span></div>`,
+            ]
+          : spot === "vs-open"
+            ? [
+                `<div class="tree-line"><i></i><strong>${villain}</strong><span>Opens ${size}bb</span></div>`,
+                `<div class="tree-line"><i></i><strong>${hero}</strong><span>Fold · Call · 3-bet</span></div>`,
+              ]
+            : [
+                `<div class="tree-line"><i></i><strong>${hero}</strong><span>Faces ${villain} 3-bet</span></div>`,
+                `<div class="tree-line"><i></i><strong>Response</strong><span>Fold · Call · 4-bet</span></div>`,
+              ];
+      elements.treePreview.innerHTML = [
+        ...lines,
+        `<div class="tree-line"><i></i><strong>Method</strong><span>Instant lookup approximation</span></div>`,
+      ].join("");
+      return;
+    }
+
     if (elements.street.value === "preflop") {
       const stack = formatFloat(Number(elements.preflopStack.value));
       elements.treePreview.innerHTML = [
@@ -357,6 +464,7 @@ function updateTreePreview() {
       ].join("");
       return;
     }
+
     const pot = Number(elements.pot.value);
     const stack = Number(elements.stack.value);
     const oop = parseBetSizes(elements.oopBets.value, pot, stack);
@@ -388,6 +496,7 @@ function wireEvents() {
   });
   elements.exportButton.addEventListener("click", exportResult);
   elements.resolveButton.addEventListener("click", () => elements.form.requestSubmit());
+
   [
     elements.board,
     elements.pot,
@@ -396,6 +505,12 @@ function wireEvents() {
     elements.bigBlind,
     elements.ante,
     elements.preflopStack,
+    elements.preflopModel,
+    elements.preflopSpot,
+    elements.heroPosition,
+    elements.villainPosition,
+    elements.lookupStack,
+    elements.openSize,
     elements.oopRange,
     elements.ipRange,
     elements.oopBets,
@@ -403,10 +518,12 @@ function wireEvents() {
     elements.iterations,
     elements.evaluationSamples,
   ].forEach((input) => input.addEventListener("input", refreshInputs));
+  [elements.preflopModel, elements.preflopSpot, elements.heroPosition, elements.villainPosition].forEach(
+    (input) => input.addEventListener("change", refreshInputs),
+  );
 }
 
 initializeResultView(elements);
-initializeHeroGrid();
 wireEvents();
 createWorker();
-setScenario("flop-srp");
+setScenario("preflop-btn-rfi");

@@ -1,37 +1,35 @@
 # Algorithm and game definitions
 
-Poker Solver exposes four starting streets through one interface, but it does not treat them as one giant no-limit game tree. Each mode uses a deliberately bounded heads-up abstraction that can run in a static browser application.
+Poker Solver exposes several bounded study models through one interface. It does not claim to solve one unrestricted no-limit tree from preflop through river.
 
-## 1. Shared card and range model
+## Shared card and range model
 
 All modes use:
 
 - a standard 52-card deck;
 - two private hole cards per player;
-- weighted ranges expanded from 169-class notation into exact suit combinations;
-- exact board and cross-player card removal;
+- weighted 169-class or exact-combo ranges;
+- exact public-board and cross-player card removal;
 - exact five-card and best-five-of-seven hand ordering.
 
-For private holdings `h0` and `h1`, a deal is legal only when neither hand overlaps the public board or the other private hand. Its unnormalized chance weight is
+For legal private holdings `h0` and `h1`, the unnormalized chance weight is
 
 ```text
 w(h0, h1) = w0(h0) · w1(h1).
 ```
 
-The chance-sampled trainers draw from the two weighted ranges and reject conflicting holdings. This is equivalent to drawing from the product distribution conditioned on legal private deals.
+## Unified dispatcher
 
-## 2. Starting-street dispatcher
-
-`src/solve.js` routes a configuration according to its selected street:
+`src/solve.js` selects the engine from the street and preflop model:
 
 ```text
-preflop → HoldemPreflopSolver
-flop    → HoldemPostflopSolver
-turn    → HoldemPostflopSolver
-river   → HoldemRiverSolver
+preflop + lookup    → preflop-lookup.js
+preflop + push-fold → preflop-solver.js
+flop / turn         → postflop-solver.js
+river                → solver.js
 ```
 
-When the street is omitted, the dispatcher infers it from the public-card count:
+When the street is omitted, public-card count is used:
 
 ```text
 0 cards → preflop
@@ -40,24 +38,73 @@ When the street is omitted, the dispatcher infers it from the public-card count:
 5 cards → river
 ```
 
-Other public-card counts are rejected.
+## Approximate six-max preflop lookup
 
-## 3. Preflop push/fold game
+The default preflop mode is a deterministic chart approximation rather than a regret-minimization run.
 
-The hosted preflop mode is a heads-up SB-versus-BB push/fold abstraction.
+### Inputs
 
-### 3.1 Public parameters
+- decision: open first in, facing an open, or facing a 3-bet;
+- hero position: UTG, HJ, CO, BTN, SB, or BB;
+- opener or 3-bettor position where relevant;
+- effective stack in big blinds;
+- opening size;
+- optional range filters in the programmatic API.
 
-A solve contains:
+### Target frequencies
 
-- small blind `SB`;
-- big blind `BB`;
-- per-player ante `A`;
-- effective stack `S` in big blinds;
-- a weighted SB range;
-- a weighted BB range.
+The engine stores smooth position-specific targets for:
 
-### 3.2 Betting tree
+- total opening frequency;
+- total continuation versus an open;
+- 3-bet frequency;
+- continuation versus a 3-bet;
+- 4-bet frequency.
+
+Stack depth and open size adjust those targets. For example, a larger open reduces calling and defending frequency, while shallow stacks shift more of the continuation range into aggressive actions.
+
+The values are original heuristic targets calibrated to familiar six-max cash-game range widths. They are not copied commercial solution data.
+
+### Hand ordering
+
+Every one of the 169 starting-hand classes receives two transparent scores:
+
+1. **Playability score** — pair strength, high-card strength, suitedness, connectivity, and gap penalties.
+2. **Aggression score** — playability plus pair, ace-blocker, broadway, suited-wheel-ace, and suited-king bonuses.
+
+A target percentage is allocated over all 1,326 starting combinations, not merely over 169 equally weighted cells. Pocket pairs therefore count as six combinations, suited hands as four, and offsuit hands as twelve. The boundary class receives a mixed frequency when necessary.
+
+### Actions
+
+```text
+Open first in:
+  most positions → fold / raise
+  small blind    → fold / limp / raise
+
+Facing an open:
+  fold / call / 3-bet
+
+Facing a 3-bet:
+  fold / call / 4-bet
+```
+
+The class strategy is expanded into exact suit combinations so the normal matrix and combo inspector can be reused.
+
+### Accuracy contract
+
+Lookup results contain:
+
+```text
+exploitability = null
+profile EV     = null
+exact          = false
+```
+
+The interface displays “Lookup” instead of inventing an EV or exploitability number.
+
+## Heads-up preflop push/fold CFR+
+
+The optional sampled preflop solver uses this tree:
 
 ```text
 SB
@@ -68,182 +115,82 @@ SB
       └─ call
 ```
 
-There are no limps, non-all-in opens, 3-bets, or 4-bets in this version.
-
-### 3.3 Utilities
-
-Utilities are zero-sum and measured in the same stack units used by the configuration.
+Inputs are small blind, big blind, ante, effective stack, SB range, and BB range. A called all-in samples five public cards without replacement and evaluates both seven-card hands exactly.
 
 From SB's perspective:
 
 ```text
-SB folds:             uSB = -(SB + A)
-SB jams, BB folds:    uSB = +(BB + A)
-SB jams, BB calls:    uSB = showdown_sign · S
+SB folds:          uSB = -(SB + ante)
+BB folds to jam:   uSB = +(BB + ante)
+BB calls:          uSB = showdown_sign · stack
 ```
 
-`showdown_sign` is `+1`, `0`, or `-1`. For every sampled called branch, five public cards are drawn without replacement and both seven-card hands are evaluated exactly.
+The engine trains exact-combo information sets with chance-sampled CFR+ and estimates profile EV and best responses through independent Monte Carlo samples.
 
-BB's utility is always the negative of SB's utility.
+## Flop and turn single-street CFR+
 
-### 3.4 Information sets
-
-There is one SB information set for every exact SB combo and one BB response information set for every exact BB combo. Hidden opponent cards never appear in an information-set key.
-
-## 4. Flop and turn single-street games
-
-Flop and turn share one postflop engine.
-
-### 4.1 Public parameters
-
-A solve contains:
-
-- a three-card flop or four-card turn board;
-- OOP and IP weighted ranges;
-- current pot `P`;
-- effective stack `S`;
-- one or more OOP bet sizes;
-- one or more IP bet sizes after an OOP check.
-
-Bet-size inputs are percentages of the current pot and are capped at the effective stack.
-
-### 4.2 Betting tree
+Flop and turn share one postflop engine:
 
 ```text
 OOP
 ├─ check
-│  └─ IP
-│     ├─ check
-│     └─ bet one configured size
-│        └─ OOP: fold or call
+│  └─ IP: check or bet one configured size
+│     └─ OOP: fold or call
 └─ bet one configured size
    └─ IP: fold or call
 ```
 
-Raises are not included.
+Raises are excluded. A flop iteration samples turn and river cards; a turn iteration samples the river. After the selected street, remaining streets check down.
 
-### 4.3 Future public cards
-
-The selected street is the only strategic betting street in this abstraction.
-
-- A flop iteration samples a turn and river.
-- A turn iteration samples a river.
-- After the selected street's actions, all future streets are treated as check-downs.
-
-The completed five-card board is combined with each private holding and evaluated with the exact seven-card evaluator. No hand-strength bucket replaces the sampled showdown in the current implementation.
-
-### 4.4 Terminal utilities
-
-Let `s(h0, h1, r)` be `-1`, `0`, or `+1` for OOP on sampled runout `r`. Then:
+With current pot `P`, called bet `B`, and showdown sign `s` from OOP's perspective:
 
 ```text
-check-check:             uOOP = s · P / 2
-OOP bet B, IP folds:     uOOP = +P / 2
-OOP bet B, IP calls:     uOOP = s · (P / 2 + B)
-OOP checks, IP bet C,
-OOP folds:               uOOP = -P / 2
-OOP checks, IP bet C,
-OOP calls:               uOOP = s · (P / 2 + C)
+check-check:          uOOP = s · P / 2
+OOP bet, IP folds:    uOOP = +P / 2
+OOP bet B, IP calls:  uOOP = s · (P / 2 + B)
+IP bet, OOP folds:    uOOP = -P / 2
+IP bet B, OOP calls:  uOOP = s · (P / 2 + B)
 ```
 
-IP's utility is the negative of OOP's utility.
+Profile EV and best-response values are Monte Carlo estimates.
 
-## 5. River finite game
+## River finite-tree CFR+
 
-The river uses the same restricted betting tree as the postflop model above, but there are no future chance cards. Every terminal showdown value is therefore known exactly once the private deal is fixed.
+River uses the same restricted check/bet/fold/call structure without future chance cards. After training, every compatible private deal is enumerated to calculate exact profile EV, pure information-consistent best responses, NashConv, and exploitability for that configured finite tree.
 
-After training, the river evaluator enumerates every compatible private deal to calculate:
+## Regret matching and CFR+
 
-- exact profile EV;
-- exact pure best response for OOP;
-- exact pure best response for IP;
-- exact NashConv and exploitability for the configured finite tree.
-
-## 6. Regret matching
-
-For information set `I` and action `a`, let cumulative regret be `R(I,a)`. The current behavioral strategy is
+At information set `I`, cumulative regret `R(I,a)` becomes the current strategy
 
 ```text
-σ(I,a) = max(R(I,a), 0) / Σb max(R(I,b), 0)
+σ(I,a) = max(R(I,a), 0) / Σb max(R(I,b), 0).
 ```
 
-when the denominator is positive. If every cumulative regret is nonpositive, the strategy is uniform over legal actions.
-
-For a sampled private deal and, when required, sampled future board, the engine evaluates every legal strategic action in the abstraction. The regret increment is
+When every regret is nonpositive, actions are uniform. A sampled regret update is
 
 ```text
 r(I,a) = counterfactual_reach · (action_value(I,a) - node_value(I)).
 ```
 
-The acting player's own reach is excluded from counterfactual reach. Chance and opponent reach are included.
-
-## 7. CFR+
-
-After every update, cumulative regret is truncated at zero:
+CFR+ truncates cumulative regret after each update:
 
 ```text
-R_next(I,a) = max(0, R(I,a) + r_next(I,a)).
+Rnext(I,a) = max(0, R(I,a) + rnext(I,a)).
 ```
 
-Both players are updated against the same frozen current strategy profile for that iteration.
+The returned policy is a realization-weighted average with linear weight `max(0, iteration - averaging_delay)`.
 
-The returned strategy is a realization-weighted average. With averaging delay `d`, iteration `t` receives linear weight
+## Best responses and exploitability
+
+A best response chooses one action for an entire information set. It may condition on the responding player's private cards and public history, but not on hidden opponent cards or unseen future cards.
+
+For a two-player zero-sum profile `σ`:
 
 ```text
-max(0, t - d).
+NashConv = BR0(σ1) - u0(σ) + BR1(σ0) - u1(σ)
+exploitability = NashConv / 2
 ```
 
-At a response information set, a player's own probability of reaching that response through an earlier action is included in its average-strategy weight.
-
-## 8. Chance sampling
-
-Enumerating all compatible private deals, all future boards, and every strategic action during every CFR iteration would make the hosted application unnecessarily slow.
-
-The trainers therefore sample:
-
-- one compatible private deal per iteration in every mode;
-- one complete five-card board for a called preflop all-in;
-- one turn-river runout for a flop iteration;
-- one river card for a turn iteration.
-
-All strategic actions in the selected finite betting tree are still evaluated for the sampled chance state. This produces an unbiased sampled regret update up to a positive information-set-specific chance scaling, which does not change regret matching because every action at that information set receives the same scaling.
-
-## 9. Average-strategy evaluation
-
-### 9.1 River
-
-River profile value is exact. Every compatible private deal is enumerated, weighted by `w0(h0) · w1(h1)`, and divided by total legal chance weight.
-
-### 9.2 Preflop, flop, and turn
-
-Earlier streets use an independent evaluation RNG and a configurable number of Monte Carlo samples. The output includes:
-
-- profile EV estimate;
-- profile-value standard error;
-- best-response value estimate for each player;
-- NashConv estimate;
-- exploitability estimate;
-- number of evaluation samples.
-
-These results are explicitly marked `exact: false` in exported JSON.
-
-## 10. Information-consistent best responses
-
-A best response must choose one action for an entire information set. It may condition on the responding player's private cards and the public history, but not on the hidden opponent holding or unseen future cards.
-
-The river evaluator aggregates continuation values across every hidden opponent holding before choosing one action for each exact private combo and public history.
-
-For preflop, flop, and turn, the evaluator estimates the same aggregation with independent Monte Carlo samples. It first estimates response actions at downstream information sets, then uses those fixed choices while estimating the earlier decision. A separate sample stream evaluates the selected response profile.
-
-## 11. NashConv and exploitability
-
-For strategy profile `σ`, player utilities `ui(σ)`, and information-consistent best-response values `BRi(σ-i)`:
-
-```text
-NashConv(σ) = Σi [BRi(σ-i) - ui(σ)]
-exploitability(σ) = NashConv(σ) / 2
-```
-
-The value is exact only for the river abstraction. Earlier-street values are Monte Carlo estimates and may vary slightly with the random seed and evaluation sample count.
-
-Zero means equilibrium of the modeled abstraction. It does not imply equilibrium of unrestricted heads-up no-limit Hold'em.
+- River reports this exactly for the configured finite tree.
+- Push/fold, flop, and turn report Monte Carlo estimates and standard-error metadata.
+- Preflop lookup charts do not report it.
