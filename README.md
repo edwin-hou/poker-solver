@@ -1,13 +1,13 @@
-# RiverForge — browser-based Hold'em GTO solver
+# Poker Solver — browser-based Hold'em GTO solver
 
-[![CI](https://github.com/edwin-hou/coding-project/actions/workflows/ci.yml/badge.svg)](https://github.com/edwin-hou/coding-project/actions/workflows/ci.yml)
-[![Deploy GitHub Pages](https://github.com/edwin-hou/coding-project/actions/workflows/pages.yml/badge.svg)](https://github.com/edwin-hou/coding-project/actions/workflows/pages.yml)
+[![CI](https://github.com/edwin-hou/poker-solver/actions/workflows/ci.yml/badge.svg)](https://github.com/edwin-hou/poker-solver/actions/workflows/ci.yml)
+[![Deploy GitHub Pages](https://github.com/edwin-hou/poker-solver/actions/workflows/pages.yml/badge.svg)](https://github.com/edwin-hou/poker-solver/actions/workflows/pages.yml)
 
-**Live solver:** <https://edwin-hou.github.io/coding-project/>
+**Live solver:** <https://edwin-hou.github.io/poker-solver/>
 
-RiverForge is an open-source, combo-level CFR+ solver for **heads-up, two-card Texas Hold'em river spots**. It runs entirely in a browser, accepts real Hold'em ranges and boards, and measures the learned strategy against exact information-consistent best responses.
+Poker Solver is an open-source, combo-level CFR+ solver for **heads-up, two-card Texas Hold'em river spots**. It runs entirely in the browser, accepts real Hold'em ranges and boards, and measures the learned strategy against exact information-consistent best responses.
 
-It is inspired by the workflow of commercial study tools—configure a spot, solve it, inspect a 13×13 range grid—but it does not copy GTO Wizard's proprietary solver, database, interface assets, or precomputed solutions.
+It follows the familiar study workflow of commercial poker tools—configure a spot, solve it, inspect a 13×13 range grid—without copying GTO Wizard's proprietary solver, database, interface assets, or precomputed solutions.
 
 ## What is genuinely modeled
 
@@ -41,15 +41,16 @@ Raises are intentionally excluded from v1. Flop and turn chance nodes, multi-str
 ## Quick start
 
 ```bash
-git clone https://github.com/edwin-hou/coding-project.git
-cd coding-project
+git clone https://github.com/edwin-hou/poker-solver.git
+cd poker-solver
+npm ci
 npm test
 npm run serve
 ```
 
 Then open <http://localhost:8000>.
 
-There are no runtime dependencies and no build framework. `npm run build` copies the static site and shared solver modules into `dist/`.
+There are no runtime dependencies and no front-end framework. `npm run build` copies the static site and shared solver modules into `dist/`.
 
 ## Range notation
 
@@ -71,7 +72,7 @@ Weights are frequencies from `0` to `1`, or percentages. Board-blocked combinati
 
 ## CFR+ implementation
 
-At every sampled compatible private-card deal, RiverForge:
+At every sampled compatible private-card deal, Poker Solver:
 
 1. Converts nonnegative cumulative regret into the current behavioral strategy.
 2. Evaluates every legal action in the restricted betting tree.
@@ -87,7 +88,7 @@ See [docs/ALGORITHM.md](docs/ALGORITHM.md) for equations and payoff conventions.
 
 Training and evaluation are separate. For each player, the evaluator chooses one action for every information set while correctly aggregating all hidden opponent holdings compatible with that information set. It does **not** condition the best response on cards the player cannot observe.
 
-For a strategy profile $\sigma$, RiverForge reports NashConv as the sum of both players' unilateral best-response gains. For this two-player zero-sum game, exploitability is `NashConv / 2`.
+For a strategy profile $\sigma$, Poker Solver reports NashConv as the sum of both players' unilateral best-response gains. For this two-player zero-sum game, exploitability is `NashConv / 2`.
 
 Lower is better. Zero means an exact Nash equilibrium of the configured finite abstraction.
 
@@ -109,8 +110,9 @@ src/
 site/
   index.html     hosted solver UI
   app.js         range grid, worker orchestration, JSON export
+  result-view.js result rendering and exact combo inspection
   solver-worker.js
-  styles.css
+  styles/
 scripts/
   build-site.mjs
   serve.mjs
@@ -119,6 +121,7 @@ test/
   cards.test.js
   range.test.js
   solver.test.js
+  site-result-view.test.js
 docs/
   ALGORITHM.md
   SCOPE.md
@@ -130,23 +133,22 @@ docs/
 npm test
 ```
 
-The tests cover card parsing, every major poker hand category, seven-card best-hand selection, range syntax and blockers, stack-capped sizing, zero-sum evaluation, and declining exact exploitability with more CFR+ training.
+The test command builds the hosted artifact first, then checks card parsing, every major poker hand category, seven-card best-hand selection, range syntax and blockers, stack-capped sizing, zero-sum evaluation, decreasing exact exploitability, and completed-solve rendering.
 
-GitHub Actions runs the suite on current Node 20 and Node 22 releases and builds the static site.
+GitHub Actions tests Node 22 and Node 24.
 
 ## GitHub Pages deployment
 
-The repository contains a custom Pages workflow at [`.github/workflows/pages.yml`](.github/workflows/pages.yml). On a newly created repository, GitHub requires a one-time repository setting:
+The repository supports both common Pages configurations:
 
-1. Open **Settings → Pages**.
-2. Under **Build and deployment**, choose **GitHub Actions** as the source.
-3. Run the `Deploy GitHub Pages` workflow or push to `main`.
+- **Recommended:** Settings → Pages → Source → **GitHub Actions**. The workflow at [`.github/workflows/pages.yml`](.github/workflows/pages.yml) tests, builds, uploads, and deploys `dist/`.
+- **Branch fallback:** publishing `main` from `/ (root)` loads the repository-root redirect and opens `site/`.
 
-After Pages is enabled, every push to `main` tests, builds, and deploys the browser solver.
+After the repository is renamed to `poker-solver`, its project-site URL is <https://edwin-hou.github.io/poker-solver/>. See [PAGES_ACTIVATION.md](PAGES_ACTIVATION.md) for the one-time setting.
 
 ## Responsible use
 
-RiverForge is intended for off-table research, education, and strategy study. Do not use it to obtain assistance during live or online play where doing so violates platform rules or applicable law.
+Poker Solver is intended for off-table research, education, and strategy study. Do not use it to obtain assistance during live or online play where doing so violates platform rules or applicable law.
 
 ## Roadmap
 
