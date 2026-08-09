@@ -1,65 +1,64 @@
-/* GitHub Pages intentionally exposes only the working solver workspace. */
+/* The public Pages app shows one focused workspace: builder, progress, or result. */
 
 body {
+  min-height: 100vh;
   background:
-    radial-gradient(circle at 10% -10%, rgba(67, 135, 255, 0.12), transparent 30rem),
+    radial-gradient(circle at 50% -12%, rgba(67, 135, 255, 0.12), transparent 34rem),
     #07101d;
 }
 
-.solver-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  min-height: 62px;
-  padding-inline: 4px;
-  background: rgba(7, 16, 29, 0.9);
-  backdrop-filter: blur(16px);
-}
-
-.solver-topbar-meta {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.solver-topbar-meta span,
-.solver-topbar-meta a {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.solver-topbar-meta i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 14px rgba(102, 227, 196, 0.75);
-}
-
-.solver-topbar-meta a {
-  color: #bdd2ed;
-}
-
 .solver-section {
-  padding: 16px 0 26px;
+  padding: 22px 0 30px;
 }
 
 .solution-toolbar {
-  margin-bottom: 12px;
-  padding: 13px 16px;
+  width: min(100%, 720px);
+  margin: 0 auto 12px;
+  padding: 14px 16px;
+  grid-template-columns: minmax(170px, 0.85fr) minmax(300px, 1.4fr);
+  gap: 14px;
   border-radius: 14px;
 }
 
-.solution-toolbar h2 {
-  font-size: clamp(1.25rem, 2vw, 1.75rem);
+.solution-toolbar > div:first-child {
+  grid-column: 1 / -1;
 }
 
-.builder-panel,
+.solution-toolbar h2 {
+  margin-top: 3px;
+  font-size: clamp(1.2rem, 2vw, 1.65rem);
+}
+
+.solution-toolbar .street-tabs,
+.solution-toolbar .scenario-control {
+  min-width: 0;
+}
+
+.wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.builder-panel {
+  position: static;
+  width: min(100%, 720px);
+  max-height: none;
+  margin-inline: auto;
+  overflow: visible;
+  border-radius: 14px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.26);
+}
+
 .study-panel {
-  border-radius: 13px;
+  width: 100%;
+  min-height: min(860px, calc(100vh - 44px));
+  border-radius: 14px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.26);
+}
+
+#results-placeholder {
+  display: none !important;
 }
 
 .lookup-position-grid {
@@ -84,25 +83,31 @@ body {
   padding-inline: 11px 30px;
 }
 
-.results-placeholder,
 .progress-view {
-  min-height: min(760px, calc(100vh - 155px));
+  min-height: min(760px, calc(100vh - 80px));
 }
 
-.study-panel {
-  min-height: min(860px, calc(100vh - 95px));
+body.showing-solution .solver-section {
+  padding-top: 14px;
 }
 
 @media (max-width: 760px) {
-  .solver-topbar-meta span {
-    display: none;
-  }
-
-  .solver-topbar {
-    width: calc(100% - 28px);
-  }
-
   .solver-section {
+    width: min(100% - 20px, 1440px);
     padding-top: 10px;
+  }
+
+  .solution-toolbar {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .solution-toolbar > div:first-child {
+    grid-column: auto;
+  }
+
+  .builder-panel,
+  .study-panel {
+    border-radius: 12px;
   }
 }
