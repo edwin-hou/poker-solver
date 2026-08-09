@@ -54,7 +54,7 @@ For a sampled private deal, the action value and on-policy node value are comput
 
 ## 5. CFR+
 
-After each sampled update, RiverForge applies the CFR+ truncation:
+After each sampled update, Poker Solver applies the CFR+ truncation:
 
 ```text
 R_next(I,a) = max(0, R(I,a) + r_next(I,a))
@@ -70,22 +70,22 @@ At response nodes, a player's own prior reach is included in the average-strateg
 
 The complete private-card matrix can contain hundreds of thousands of compatible deals. Enumerating it during every CFR iteration would make a static browser solver unnecessarily slow.
 
-RiverForge samples one legal private deal per iteration. Sampling the chance event while traversing all strategic actions produces an unbiased counterfactual update up to an information-set-specific positive chance scaling. That scaling does not change regret matching because it multiplies every action regret at the same information set.
+Poker Solver samples one legal private deal per iteration. Sampling the chance event while traversing all strategic actions produces an unbiased counterfactual update up to an information-set-specific positive chance scaling. That scaling does not change regret matching because it multiplies every action regret at the same information set.
 
 Exact enumeration is still used after training for profile EV and best-response evaluation.
 
 ## 7. Exact profile value
 
-For the average strategy, RiverForge enumerates every legal private deal, multiplies its terminal expectation by the product of both range weights, and divides by total compatible deal weight.
+For the average strategy, Poker Solver enumerates every legal private deal, multiplies its terminal expectation by the product of both range weights, and divides by total compatible deal weight.
 
 ## 8. Information-consistent best responses
 
 A best response must choose one action per information set, not one action per hidden opponent hand.
 
-For example, when OOP faces an IP bet while holding h0, RiverForge aggregates fold and call values across every compatible IP hand, weighted by the IP range and IP's probability of choosing that bet. The same selected action is then applied against every hidden IP holding in that information set. Backward induction chooses response actions before earlier actions.
+For example, when OOP faces an IP bet while holding h0, Poker Solver aggregates fold and call values across every compatible IP hand, weighted by the IP range and IP's probability of choosing that bet. The same selected action is then applied against every hidden IP holding in that information set. Backward induction chooses response actions before earlier actions.
 
 ## 9. NashConv and exploitability
 
-NashConv is the sum of the amount each player can gain by switching unilaterally to an exact best response. For this two-player zero-sum game, RiverForge reports `exploitability = NashConv / 2`.
+NashConv is the sum of the amount each player can gain by switching unilaterally to an exact best response. For this two-player zero-sum game, Poker Solver reports `exploitability = NashConv / 2`.
 
 This number is exact for the configured finite river abstraction; the learned policy remains approximate because CFR+ is stopped after a finite number of iterations.

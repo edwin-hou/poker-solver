@@ -1,10 +1,10 @@
-# Scope: RiverForge versus a commercial multi-street solver
+# Scope: Poker Solver versus a commercial multi-street solver
 
-RiverForge is a real two-card Texas Hold'em solver, but “Hold'em solver” covers several very different scales of software. This document makes the boundary explicit.
+Poker Solver is a real two-card Texas Hold'em solver, but “Hold'em solver” covers several very different scales of software. This document makes the boundary explicit.
 
 ## Implemented now
 
-| Capability | RiverForge hosted v1 |
+| Capability | Poker Solver hosted v1 |
 |---|---|
 | Private cards | Exact two-card combinations |
 | Public cards | Exact five-card river board |
@@ -61,4 +61,4 @@ Each stage should retain exact best-response tests on smaller regression games s
 
 ## Branding and affiliation
 
-RiverForge is independent open-source software. “GTO Wizard” is referenced only to explain the category of range-oriented poker study interface requested for the project. No proprietary code, solver outputs, design assets, or databases are included.
+Poker Solver is independent open-source software. “GTO Wizard” is referenced only to explain the category of range-oriented poker study interface requested for the project. No proprietary code, solver outputs, design assets, or databases are included.

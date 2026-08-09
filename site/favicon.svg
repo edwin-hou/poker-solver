@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="16" fill="#0b1729"/>
-  <path d="M13 46V16h17c10 0 16 5 16 14 0 6-3 10-8 12l12 4v4H38l-13-6v6H13zm12-18h5c3 0 5-1 5-4s-2-4-5-4h-5v8z" fill="#66e3c4"/>
+  <rect x="7" y="7" width="50" height="50" rx="13" fill="none" stroke="#66e3c4" stroke-opacity=".35"/>
+  <text x="32" y="40" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" font-weight="800" fill="#66e3c4">PS</text>
 </svg>
