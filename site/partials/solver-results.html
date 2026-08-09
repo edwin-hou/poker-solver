@@ -1,14 +1,5 @@
-          <section class="results-panel panel study-panel" aria-live="polite">
-            <div class="results-placeholder" id="results-placeholder">
-              <div class="placeholder-orbit"><span></span><span></span><span></span></div>
-              <h3>Your strategy matrix will appear here</h3>
-              <p>Select a preset or configure a spot. Preflop lookup charts are instant; CFR+ modes run locally in the browser.</p>
-              <div class="placeholder-facts">
-                <div><strong>Preflop</strong><span>lookup + push/fold</span></div>
-                <div><strong>1,326 combos</strong><span>exact card removal</span></div>
-                <div><strong>Postflop</strong><span>CFR+ study trees</span></div>
-              </div>
-            </div>
+          <section id="results-panel" class="results-panel panel study-panel" aria-live="polite" hidden>
+            <div id="results-placeholder" hidden></div>
 
             <div class="progress-view" id="progress-view" hidden>
               <div class="solver-loader">
@@ -31,7 +22,7 @@
                 </div>
                 <div class="result-actions">
                   <button class="icon-button" id="export-button" title="Download solution JSON">↓ Export</button>
-                  <button class="icon-button" id="resolve-button" title="Run the current configuration again">↻ Re-run</button>
+                  <button class="icon-button" id="resolve-button" title="Return to the solution builder">← Edit spot</button>
                 </div>
               </div>
 
