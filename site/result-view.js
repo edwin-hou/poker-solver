@@ -24,6 +24,10 @@ export function clearNodeSelection() {
   selectedClassLabel = null;
 }
 
+function setText(element, text) {
+  if (element) element.textContent = text;
+}
+
 export function renderResult(result) {
   if (!elements) throw new Error("Result view has not been initialized.");
   if (!result?.nodes?.length) throw new Error("The solver returned no decision nodes.");
@@ -47,12 +51,17 @@ export function renderResult(result) {
 
   const evaluation = result.evaluation ?? {};
   if (lookup) {
+    const actualContinue = result.lookup?.actualContinueFrequency ?? result.lookup?.targetContinueFrequency ?? 0;
     elements.metricExploitabilityLabel.textContent = "Model";
     elements.metricExploitability.textContent = "Lookup";
     elements.metricExploitabilityPot.textContent = "approximate chart";
-    elements.metricOopLabel.textContent = "Continue target";
-    elements.metricOopEv.textContent = `${percent.format((result.lookup?.targetContinueFrequency ?? 0) * 100)}%`;
+    elements.metricOopLabel.textContent = "Continue frequency";
+    elements.metricOopEv.textContent = `${percent.format(actualContinue * 100)}%`;
+    setText(elements.metricOopUnit, "weighted starting combos");
+    setText(elements.metricDealsLabel, "Starting hands");
     elements.metricDeals.textContent = formatCompact(result.ranges?.hero?.comboCount ?? result.nodes[0].combos.length);
+    setText(elements.metricDealsUnit, "exact two-card combos");
+    setText(elements.metricIterationsLabel, "Generation");
     elements.metricIterations.textContent = "Instant";
     elements.metricRuntime.textContent = `${formatDuration(result.runtimeMs)} browser runtime`;
     elements.accuracyNote.textContent =
@@ -67,7 +76,11 @@ export function renderResult(result) {
     )}% of pot`;
     elements.metricOopLabel.textContent = street === "preflop" ? "SB EV" : "OOP EV";
     elements.metricOopEv.textContent = formatSigned(evaluation.profileValueOop);
+    setText(elements.metricOopUnit, "chips / hand");
+    setText(elements.metricDealsLabel, "Compatible deals");
     elements.metricDeals.textContent = formatCompact(result.compatibleDealWeight);
+    setText(elements.metricDealsUnit, "weighted chance mass");
+    setText(elements.metricIterationsLabel, "Iterations");
     elements.metricIterations.textContent = formatCompact(result.iterations);
     elements.metricRuntime.textContent = `${formatDuration(result.runtimeMs)} browser runtime`;
 
