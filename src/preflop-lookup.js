@@ -144,7 +144,6 @@ function aggressionScore(label) {
   if (features.pair) score += features.high >= 10 ? 9 : features.high >= 7 ? 3 : 0;
   if (features.high === 14) score += 5.5;
   if (features.high === 13 && features.low >= 10) score += 2.5;
-  // Wheel aces and suited kings create a small polarized bluff component.
   if (features.suited && features.high === 14 && features.low <= 5) score += 8.5;
   if (features.suited && features.high === 13 && features.low <= 8) score += 2.8;
   return score;
@@ -174,6 +173,26 @@ function allocateTarget(targetFraction, scoreFunction, cacheKey) {
     const frequency = clamp(remaining / count, 0, 1);
     frequencies.set(label, frequency);
     remaining -= frequency * count;
+  }
+  return frequencies;
+}
+
+function allocateSubsetTarget(capacityMap, targetFraction, scoreFunction, cacheKey) {
+  const frequencies = new Map(ALL_CLASSES.map((label) => [label, 0]));
+  const totalCapacity = ALL_CLASSES.reduce(
+    (sum, label) => sum + (capacityMap.get(label) ?? 0) * classComboCount(label),
+    0,
+  );
+  let remaining = Math.min(clamp(targetFraction, 0, 1) * TOTAL_COMBOS, totalCapacity);
+
+  for (const label of orderedClasses(cacheKey, scoreFunction)) {
+    if (remaining <= 0) break;
+    const capacity = capacityMap.get(label) ?? 0;
+    if (capacity <= 0) continue;
+    const count = classComboCount(label);
+    const allocatedCombos = Math.min(remaining, capacity * count);
+    frequencies.set(label, allocatedCombos / count);
+    remaining -= allocatedCombos;
   }
   return frequencies;
 }
@@ -240,12 +259,12 @@ function buildStrategyTable(config) {
     }
 
     const raiseTarget = clamp(target * (config.stack < 30 ? 0.67 : 0.58), 0.24, 0.43);
-    const raiseMap = allocateTarget(raiseTarget, aggressionScore, "aggression");
+    const raiseMap = allocateSubsetTarget(continueMap, raiseTarget, aggressionScore, "aggression");
     for (const label of ALL_CLASSES) {
       const totalContinue = continueMap.get(label) ?? 0;
       const raise = raiseMap.get(label) ?? 0;
-      const limp = Math.max(0, Math.min(1 - raise, totalContinue - raise));
-      table.set(label, [Math.max(0, 1 - raise - limp), limp, raise]);
+      const limp = Math.max(0, totalContinue - raise);
+      table.set(label, [Math.max(0, 1 - totalContinue), limp, raise]);
     }
     return table;
   }
@@ -258,12 +277,12 @@ function buildStrategyTable(config) {
       config.openSize,
     );
     const continueMap = allocateTarget(continueTarget, playabilityScore, "playability");
-    const aggressiveMap = allocateTarget(threeBetTarget, aggressionScore, "aggression");
+    const aggressiveMap = allocateSubsetTarget(continueMap, threeBetTarget, aggressionScore, "aggression");
     for (const label of ALL_CLASSES) {
       const continueFrequency = continueMap.get(label) ?? 0;
       const threeBet = aggressiveMap.get(label) ?? 0;
-      const call = Math.max(0, Math.min(1 - threeBet, continueFrequency - threeBet));
-      table.set(label, [Math.max(0, 1 - call - threeBet), call, threeBet]);
+      const call = Math.max(0, continueFrequency - threeBet);
+      table.set(label, [Math.max(0, 1 - continueFrequency), call, threeBet]);
     }
     return table;
   }
@@ -274,12 +293,12 @@ function buildStrategyTable(config) {
     config.stack,
   );
   const continueMap = allocateTarget(continueTarget, playabilityScore, "playability");
-  const aggressiveMap = allocateTarget(fourBetTarget, aggressionScore, "aggression");
+  const aggressiveMap = allocateSubsetTarget(continueMap, fourBetTarget, aggressionScore, "aggression");
   for (const label of ALL_CLASSES) {
     const continueFrequency = continueMap.get(label) ?? 0;
     const fourBet = aggressiveMap.get(label) ?? 0;
-    const call = Math.max(0, Math.min(1 - fourBet, continueFrequency - fourBet));
-    table.set(label, [Math.max(0, 1 - call - fourBet), call, fourBet]);
+    const call = Math.max(0, continueFrequency - fourBet);
+    table.set(label, [Math.max(0, 1 - continueFrequency), call, fourBet]);
   }
   return table;
 }
@@ -341,6 +360,23 @@ function targetMetadata(config) {
   return { totalContinue, aggressive };
 }
 
+function actualStrategyMetadata(heroCombos, strategies) {
+  let totalWeight = 0;
+  let continueWeight = 0;
+  let aggressiveWeight = 0;
+  for (let index = 0; index < heroCombos.length; index += 1) {
+    const weight = heroCombos[index].weight;
+    const strategy = strategies[index];
+    totalWeight += weight;
+    continueWeight += weight * (1 - strategy[0]);
+    aggressiveWeight += weight * strategy[strategy.length - 1];
+  }
+  return {
+    actualContinueFrequency: totalWeight > 0 ? continueWeight / totalWeight : 0,
+    actualAggressiveFrequency: totalWeight > 0 ? aggressiveWeight / totalWeight : 0,
+  };
+}
+
 export function buildPreflopLookupResult(rawConfig = {}) {
   const config = validatePreflopLookupConfig(rawConfig);
   const heroCombos = expandRange(config.heroRange);
@@ -349,6 +385,7 @@ export function buildPreflopLookupResult(rawConfig = {}) {
   const strategies = heroCombos.map((combo) => [...strategyTable.get(combo.classLabel)]);
   const labels = actionLabels(config);
   const target = targetMetadata(config);
+  const actual = actualStrategyMetadata(heroCombos, strategies);
   const serialize = (combo) => ({
     key: combo.key,
     cards: combo.cards,
@@ -395,6 +432,7 @@ export function buildPreflopLookupResult(rawConfig = {}) {
     lookup: {
       targetContinueFrequency: target.totalContinue,
       targetAggressiveFrequency: target.aggressive,
+      ...actual,
       note: "Frequencies are positional chart approximations, not a solved unrestricted preflop equilibrium.",
     },
     nodes: [
