@@ -1,4 +1,4 @@
-import { CancelledSolveError, solveHoldemRiver } from "./src/solver.js";
+import { CancelledSolveError, solveHoldemRiver } from "../src/solver.js";
 
 let activeJob = 0;
 

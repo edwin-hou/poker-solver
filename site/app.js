@@ -1,4 +1,4 @@
-import { expandRange, parseBetSizes, parseBoard, summarizeRange } from "./src/index.js";
+import { expandRange, parseBetSizes, parseBoard, summarizeRange } from "../src/index.js";
 import { SCENARIOS, formatFloat, number } from "./ui-constants.js";
 import { clearNodeSelection, exportResult, initializeResultView, renderNode, renderResult } from "./result-view.js";
 

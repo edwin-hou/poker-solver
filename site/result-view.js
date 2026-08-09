@@ -1,4 +1,4 @@
-import { HAND_CLASSES, cardToHtml, cardToString } from "./src/index.js";
+import { HAND_CLASSES, cardToHtml, cardToString } from "../src/index.js";
 import {
   ACTION_COLORS,
   escapeAttribute,
