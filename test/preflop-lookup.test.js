@@ -40,6 +40,7 @@ test("BTN open-first-in lookup produces a complete approximate range chart", () 
   assert.equal(result.nodes[0].actionLabels.length, 2);
   assert.equal(result.ranges.hero.comboCount, 1_326);
   assert.equal(result.evaluation.exploitability, null);
+  assert.ok(Math.abs(result.lookup.actualContinueFrequency - 0.47) < 1e-10);
   assert.ok(classStrategy(result, "AA")[1] > 0.99);
   assert.ok(classStrategy(result, "72o")[0] > 0.99);
   assertNormalized(result);
@@ -62,6 +63,8 @@ test("late-position blind defense is wider than early-position defense", () => {
   });
 
   assert.ok(bbVsBtn.lookup.targetContinueFrequency > hjVsUtg.lookup.targetContinueFrequency * 3);
+  assert.ok(bbVsBtn.lookup.actualAggressiveFrequency <= bbVsBtn.lookup.actualContinueFrequency);
+  assert.ok(Math.abs(bbVsBtn.lookup.actualContinueFrequency - bbVsBtn.lookup.targetContinueFrequency) < 1e-10);
   assert.deepEqual(bbVsBtn.nodes[0].actionLabels, ["Fold", "Call", "3-bet"]);
   assertNormalized(bbVsBtn);
 });
@@ -85,6 +88,7 @@ test("unified dispatcher selects lookup mode without running CFR iterations", as
   });
   assert.equal(result.iterations, 0);
   assert.equal(result.abstraction.spot, "vs-3bet");
+  assert.ok(result.lookup.actualAggressiveFrequency <= result.lookup.actualContinueFrequency);
   assert.deepEqual(result.nodes[0].actionLabels, ["Fold", "Call", "4-bet"]);
   assertNormalized(result);
 });
