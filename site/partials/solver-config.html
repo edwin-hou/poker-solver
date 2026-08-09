@@ -1,21 +1,23 @@
       <section id="solver" class="solver-section shell">
         <div class="solution-toolbar">
           <div>
-            <div class="eyebrow">Solution builder</div>
-            <h2>Build a custom Hold'em spot</h2>
+            <div class="eyebrow">Poker Solver</div>
+            <h2>Configure, solve, inspect</h2>
           </div>
           <div class="street-tabs" id="street-tabs" role="tablist" aria-label="Starting street">
-            <button type="button" data-street="preflop" role="tab">Preflop</button>
-            <button type="button" data-street="flop" role="tab" class="active">Flop</button>
+            <button type="button" data-street="preflop" role="tab" class="active">Preflop</button>
+            <button type="button" data-street="flop" role="tab">Flop</button>
             <button type="button" data-street="turn" role="tab">Turn</button>
             <button type="button" data-street="river" role="tab">River</button>
           </div>
           <div class="scenario-control">
             <label for="scenario">Preset</label>
             <select id="scenario">
-              <option value="preflop-15bb">HU push/fold · 15bb</option>
-              <option value="preflop-8bb">HU push/fold · 8bb + ante</option>
-              <option value="flop-srp" selected>Flop · BTN vs BB SRP</option>
+              <option value="preflop-btn-rfi" selected>Preflop · BTN open 100bb</option>
+              <option value="preflop-bb-vs-btn">Preflop · BB vs BTN open</option>
+              <option value="preflop-co-vs-btn-3bet">Preflop · CO vs BTN 3-bet</option>
+              <option value="preflop-10bb">Preflop · HU push/fold 10bb</option>
+              <option value="flop-srp">Flop · BTN vs BB SRP</option>
               <option value="turn-barrel">Turn · ace-high barrel</option>
               <option value="river-polar">River · polar benchmark</option>
               <option value="river-wide">River · wide ranges</option>
@@ -26,14 +28,14 @@
         <div class="solver-layout wizard-layout">
           <aside class="config-panel panel builder-panel">
             <form id="solver-form">
-              <input id="street" name="street" type="hidden" value="flop" />
+              <input id="street" name="street" type="hidden" value="preflop" />
 
               <div class="panel-title-row">
-                <div><span class="step-number">01</span><h3>Solution</h3></div>
+                <div><span class="step-number">01</span><h3>Spot</h3></div>
                 <button type="button" class="text-button" id="reset-button">Reset</button>
               </div>
 
-              <div id="postflop-setup">
+              <div id="postflop-setup" hidden>
                 <label class="field field-wide">
                   <span id="board-field-label">Flop board</span>
                   <input id="board" name="board" value="Qs Ts 7h" autocomplete="off" spellcheck="false" />
@@ -51,54 +53,105 @@
                 </div>
               </div>
 
-              <div id="preflop-setup" hidden>
-                <div class="field-row three-fields">
-                  <label class="field"><span>Small blind</span><input id="small-blind" type="number" min="0.1" step="0.1" value="0.5" /></label>
-                  <label class="field"><span>Big blind</span><input id="big-blind" type="number" min="0.2" step="0.1" value="1" /></label>
-                  <label class="field"><span>Ante / player</span><input id="ante" type="number" min="0" step="0.05" value="0" /></label>
-                </div>
+              <div id="preflop-setup">
                 <label class="field field-wide">
-                  <span>Effective stack <em>in big blinds</em></span>
-                  <input id="preflop-stack" type="number" min="2" step="0.5" value="15" />
+                  <span>Preflop model</span>
+                  <select id="preflop-model">
+                    <option value="lookup" selected>6-max chart approximation</option>
+                    <option value="push-fold">Heads-up push/fold CFR+</option>
+                  </select>
                 </label>
-                <div class="scope-callout compact-callout">
-                  <strong>Hosted preflop tree</strong>
-                  <span>SB fold or jam; BB fold or call. Called hands run through a sampled five-card board.</span>
+
+                <div id="preflop-lookup-setup">
+                  <div class="field-row">
+                    <label class="field">
+                      <span>Decision</span>
+                      <select id="preflop-spot">
+                        <option value="rfi">Open first in</option>
+                        <option value="vs-open">Facing an open</option>
+                        <option value="vs-3bet">Facing a 3-bet</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Stack depth</span>
+                      <div class="input-affix"><input id="lookup-stack" type="number" min="5" max="500" step="5" value="100" /><b>bb</b></div>
+                    </label>
+                  </div>
+                  <div class="field-row three-fields lookup-position-grid">
+                    <label class="field">
+                      <span>Hero</span>
+                      <select id="hero-position">
+                        <option>UTG</option><option>HJ</option><option>CO</option><option selected>BTN</option><option>SB</option><option>BB</option>
+                      </select>
+                    </label>
+                    <label class="field" id="villain-position-field">
+                      <span>Opener / 3-bettor</span>
+                      <select id="villain-position">
+                        <option>UTG</option><option>HJ</option><option>CO</option><option>BTN</option><option>SB</option><option selected>BB</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Open size</span>
+                      <div class="input-affix"><input id="open-size" type="number" min="1.5" max="6" step="0.1" value="2.5" /><b>bb</b></div>
+                    </label>
+                  </div>
+                  <div class="scope-callout compact-callout lookup-callout">
+                    <strong>Approximate chart mode</strong>
+                    <span>Instant position- and stack-aware frequencies derived from transparent lookup targets. EV and exploitability are not claimed for this mode.</span>
+                  </div>
+                </div>
+
+                <div id="preflop-pushfold-setup" hidden>
+                  <div class="field-row three-fields">
+                    <label class="field"><span>Small blind</span><input id="small-blind" type="number" min="0.1" step="0.1" value="0.5" /></label>
+                    <label class="field"><span>Big blind</span><input id="big-blind" type="number" min="0.2" step="0.1" value="1" /></label>
+                    <label class="field"><span>Ante / player</span><input id="ante" type="number" min="0" step="0.05" value="0" /></label>
+                  </div>
+                  <label class="field field-wide">
+                    <span>Effective stack <em>in big blinds</em></span>
+                    <input id="preflop-stack" type="number" min="2" step="0.5" value="10" />
+                  </label>
+                  <div class="scope-callout compact-callout">
+                    <strong>Push/fold CFR+ mode</strong>
+                    <span>SB folds or jams; BB folds or calls. Called hands sample complete five-card boards.</span>
+                  </div>
                 </div>
               </div>
 
+              <div id="range-editor">
+                <div class="separator"></div>
+                <div class="panel-title-row compact">
+                  <div><span class="step-number">02</span><h3>Ranges</h3></div>
+                  <span class="help" title="Standard notation, exact combos, plus ranges, intervals, and weights are supported.">?</span>
+                </div>
+
+                <div class="position-switch" aria-label="Players">
+                  <span id="oop-position-chip" class="active">OOP</span>
+                  <span id="ip-position-chip">IP</span>
+                </div>
+
+                <label class="field field-wide">
+                  <span id="oop-range-label">OOP range</span>
+                  <textarea id="oop-range" rows="4" spellcheck="false">random</textarea>
+                  <small id="oop-range-count">Parsing range…</small>
+                </label>
+                <label class="field field-wide">
+                  <span id="ip-range-label">IP range</span>
+                  <textarea id="ip-range" rows="4" spellcheck="false">random</textarea>
+                  <small id="ip-range-count">Parsing range…</small>
+                </label>
+                <details class="notation-help">
+                  <summary>Range notation</summary>
+                  <p><code>TT+</code>, <code>A2s+</code>, <code>22-66</code>, <code>AsKh</code>, <code>AKs:50%</code>, or <code>random</code>.</p>
+                </details>
+              </div>
+
               <div class="separator"></div>
               <div class="panel-title-row compact">
-                <div><span class="step-number">02</span><h3>Ranges</h3></div>
-                <span class="help" title="Standard notation, exact combos, plus ranges, intervals, and weights are supported.">?</span>
+                <div><span class="step-number">03</span><h3>Game tree</h3></div>
               </div>
 
-              <div class="position-switch" aria-label="Players">
-                <span id="oop-position-chip" class="active">OOP</span>
-                <span id="ip-position-chip">IP</span>
-              </div>
-
-              <label class="field field-wide">
-                <span id="oop-range-label">OOP range</span>
-                <textarea id="oop-range" rows="4" spellcheck="false">22+,A2s+,K5s+,Q8s+,J8s+,T8s+,98s,87s,A8o+,KTo+,QTo+,JTo</textarea>
-                <small id="oop-range-count">Parsing range…</small>
-              </label>
-              <label class="field field-wide">
-                <span id="ip-range-label">IP range</span>
-                <textarea id="ip-range" rows="4" spellcheck="false">22+,A2s+,K2s+,Q5s+,J7s+,T7s+,97s+,87s,76s,65s,A2o+,K8o+,Q9o+,J9o+,T9o</textarea>
-                <small id="ip-range-count">Parsing range…</small>
-              </label>
-              <details class="notation-help">
-                <summary>Range notation</summary>
-                <p><code>TT+</code>, <code>A2s+</code>, <code>22-66</code>, <code>AsKh</code>, <code>AKs:50%</code>, or <code>random</code>.</p>
-              </details>
-
-              <div class="separator"></div>
-              <div class="panel-title-row compact">
-                <div><span class="step-number">03</span><h3>Betting tree</h3></div>
-              </div>
-
-              <div id="postflop-betting">
+              <div id="postflop-betting" hidden>
                 <label class="field field-wide">
                   <span>OOP bet sizes <em>% of pot</em></span>
                   <input id="oop-bets" value="33, 75" autocomplete="off" />
@@ -108,35 +161,40 @@
                   <input id="ip-bets" value="33, 75" autocomplete="off" />
                 </label>
               </div>
-              <div id="preflop-betting" hidden>
-                <p class="builder-note">Push/fold mode has a fixed two-node tree so full 1,326-combo ranges remain practical in a static browser app.</p>
+              <div id="preflop-betting">
+                <p class="builder-note" id="preflop-tree-note">Open-first-in chart: fold or raise.</p>
               </div>
               <div class="tree-preview" id="tree-preview"></div>
 
-              <div class="separator"></div>
-              <div class="panel-title-row compact">
-                <div><span class="step-number">04</span><h3>Accuracy</h3></div>
-              </div>
-              <label class="field field-wide">
-                <span>Iterations <output id="iterations-output" for="iterations">220,000</output></span>
-                <input id="iterations" type="range" min="10000" max="2000000" step="10000" value="220000" />
-                <small>More iterations generally reduce regret and estimated exploitability.</small>
-              </label>
-              <details class="advanced-settings">
-                <summary>Advanced settings</summary>
-                <div class="field-row advanced-grid">
-                  <label class="field"><span>Averaging delay</span><input id="averaging-delay" type="number" min="0" step="100" value="3000" /></label>
-                  <label class="field"><span>Evaluation samples</span><input id="evaluation-samples" type="number" min="1000" step="1000" value="24000" /></label>
-                  <label class="field"><span>Random seed</span><input id="seed" type="number" min="1" step="1" value="20260812" /></label>
+              <div id="accuracy-settings" hidden>
+                <div class="separator"></div>
+                <div class="panel-title-row compact">
+                  <div><span class="step-number">04</span><h3>Accuracy</h3></div>
                 </div>
-              </details>
+                <label class="field field-wide">
+                  <span>Iterations <output id="iterations-output" for="iterations">220,000</output></span>
+                  <input id="iterations" type="range" min="10000" max="2000000" step="10000" value="220000" />
+                  <small>More iterations generally reduce regret and estimated exploitability.</small>
+                </label>
+                <details class="advanced-settings">
+                  <summary>Advanced settings</summary>
+                  <div class="field-row advanced-grid">
+                    <label class="field"><span>Averaging delay</span><input id="averaging-delay" type="number" min="0" step="100" value="3000" /></label>
+                    <label class="field"><span>Evaluation samples</span><input id="evaluation-samples" type="number" min="1000" step="1000" value="24000" /></label>
+                    <label class="field"><span>Random seed</span><input id="seed" type="number" min="1" step="1" value="20260812" /></label>
+                  </div>
+                </details>
+              </div>
+              <div class="scope-callout compact-callout" id="lookup-accuracy-note">
+                <strong>Instant lookup</strong>
+                <span>The matrix is generated immediately; no CFR iteration count applies.</span>
+              </div>
 
               <div class="form-error" id="form-error" role="alert" hidden></div>
               <div class="solve-actions">
-                <button class="button button-primary solve-button" type="submit" id="solve-button"><span class="button-icon">◇</span>Build &amp; solve</button>
+                <button class="button button-primary solve-button" type="submit" id="solve-button"><span class="button-icon">◇</span><span id="solve-button-label">Show preflop chart</span></button>
                 <button class="button button-secondary" type="button" id="cancel-button" hidden>Cancel</button>
               </div>
-              <p class="local-note">The solve runs locally in a Web Worker. No cards, ranges, or strategies are uploaded.</p>
+              <p class="local-note">Everything runs locally in a Web Worker. No cards, ranges, or strategies are uploaded.</p>
             </form>
           </aside>
-
