@@ -1,130 +1,142 @@
       <section id="solver" class="solver-section shell">
-        <div class="section-heading">
+        <div class="solution-toolbar">
           <div>
-            <div class="eyebrow">Interactive solver</div>
-            <h2>Configure the game tree</h2>
+            <div class="eyebrow">Solution builder</div>
+            <h2>Build a custom Hold'em spot</h2>
+          </div>
+          <div class="street-tabs" id="street-tabs" role="tablist" aria-label="Starting street">
+            <button type="button" data-street="preflop" role="tab">Preflop</button>
+            <button type="button" data-street="flop" role="tab" class="active">Flop</button>
+            <button type="button" data-street="turn" role="tab">Turn</button>
+            <button type="button" data-street="river" role="tab">River</button>
           </div>
           <div class="scenario-control">
-            <label for="scenario">Example spot</label>
+            <label for="scenario">Preset</label>
             <select id="scenario">
-              <option value="ace-high">Ace-high river</option>
-              <option value="paired">Paired river</option>
-              <option value="polar">Small polar benchmark</option>
-              <option value="full">Full-range stress test</option>
+              <option value="preflop-15bb">HU push/fold · 15bb</option>
+              <option value="preflop-8bb">HU push/fold · 8bb + ante</option>
+              <option value="flop-srp" selected>Flop · BTN vs BB SRP</option>
+              <option value="turn-barrel">Turn · ace-high barrel</option>
+              <option value="river-polar">River · polar benchmark</option>
+              <option value="river-wide">River · wide ranges</option>
             </select>
           </div>
         </div>
 
-        <div class="solver-layout">
-          <aside class="config-panel panel">
+        <div class="solver-layout wizard-layout">
+          <aside class="config-panel panel builder-panel">
             <form id="solver-form">
+              <input id="street" name="street" type="hidden" value="flop" />
+
               <div class="panel-title-row">
-                <div>
-                  <span class="step-number">01</span>
-                  <h3>Game setup</h3>
-                </div>
+                <div><span class="step-number">01</span><h3>Solution</h3></div>
                 <button type="button" class="text-button" id="reset-button">Reset</button>
               </div>
 
-              <label class="field field-wide">
-                <span>River board</span>
-                <input id="board" name="board" value="Ah Kd 7c 4s 2d" autocomplete="off" spellcheck="false" />
-                <small>Five unique cards, such as <code>Ah Kd 7c 4s 2d</code>.</small>
-              </label>
+              <div id="postflop-setup">
+                <label class="field field-wide">
+                  <span id="board-field-label">Flop board</span>
+                  <input id="board" name="board" value="Qs Ts 7h" autocomplete="off" spellcheck="false" />
+                  <small id="board-help">Enter exactly three unique cards.</small>
+                </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Pot</span>
+                    <div class="input-affix"><input id="pot" name="pot" type="number" min="0.1" step="0.1" value="6" /><b>chips</b></div>
+                  </label>
+                  <label class="field">
+                    <span>Effective stack</span>
+                    <div class="input-affix"><input id="stack" name="stack" type="number" min="0.1" step="0.1" value="97" /><b>chips</b></div>
+                  </label>
+                </div>
+              </div>
 
-              <div class="field-row">
-                <label class="field">
-                  <span>Pot</span>
-                  <div class="input-affix"><input id="pot" name="pot" type="number" min="1" step="1" value="100" /><b>chips</b></div>
+              <div id="preflop-setup" hidden>
+                <div class="field-row three-fields">
+                  <label class="field"><span>Small blind</span><input id="small-blind" type="number" min="0.1" step="0.1" value="0.5" /></label>
+                  <label class="field"><span>Big blind</span><input id="big-blind" type="number" min="0.2" step="0.1" value="1" /></label>
+                  <label class="field"><span>Ante / player</span><input id="ante" type="number" min="0" step="0.05" value="0" /></label>
+                </div>
+                <label class="field field-wide">
+                  <span>Effective stack <em>in big blinds</em></span>
+                  <input id="preflop-stack" type="number" min="2" step="0.5" value="15" />
                 </label>
-                <label class="field">
-                  <span>Effective stack</span>
-                  <div class="input-affix"><input id="stack" name="stack" type="number" min="1" step="1" value="100" /><b>chips</b></div>
-                </label>
+                <div class="scope-callout compact-callout">
+                  <strong>Hosted preflop tree</strong>
+                  <span>SB fold or jam; BB fold or call. Called hands run through a sampled five-card board.</span>
+                </div>
               </div>
 
               <div class="separator"></div>
               <div class="panel-title-row compact">
-                <div>
-                  <span class="step-number">02</span>
-                  <h3>Starting ranges</h3>
-                </div>
-                <span class="help" title="Supports standard notation, exact combos, plus ranges, intervals, and weights.">?</span>
+                <div><span class="step-number">02</span><h3>Ranges</h3></div>
+                <span class="help" title="Standard notation, exact combos, plus ranges, intervals, and weights are supported.">?</span>
+              </div>
+
+              <div class="position-switch" aria-label="Players">
+                <span id="oop-position-chip" class="active">OOP</span>
+                <span id="ip-position-chip">IP</span>
               </div>
 
               <label class="field field-wide">
-                <span>OOP range</span>
-                <textarea id="oop-range" name="oopRange" rows="4" spellcheck="false">22+,A2s+,K5s+,Q8s+,J8s+,T8s+,98s,87s,A8o+,KTo+,QTo+,JTo</textarea>
+                <span id="oop-range-label">OOP range</span>
+                <textarea id="oop-range" rows="4" spellcheck="false">22+,A2s+,K5s+,Q8s+,J8s+,T8s+,98s,87s,A8o+,KTo+,QTo+,JTo</textarea>
                 <small id="oop-range-count">Parsing range…</small>
               </label>
-
               <label class="field field-wide">
-                <span>IP range</span>
-                <textarea id="ip-range" name="ipRange" rows="4" spellcheck="false">22+,A2s+,K2s+,Q5s+,J7s+,T7s+,97s+,87s,76s,65s,A2o+,K8o+,Q9o+,J9o+,T9o</textarea>
+                <span id="ip-range-label">IP range</span>
+                <textarea id="ip-range" rows="4" spellcheck="false">22+,A2s+,K2s+,Q5s+,J7s+,T7s+,97s+,87s,76s,65s,A2o+,K8o+,Q9o+,J9o+,T9o</textarea>
                 <small id="ip-range-count">Parsing range…</small>
               </label>
-
               <details class="notation-help">
-                <summary>Range notation examples</summary>
+                <summary>Range notation</summary>
                 <p><code>TT+</code>, <code>A2s+</code>, <code>22-66</code>, <code>AsKh</code>, <code>AKs:50%</code>, or <code>random</code>.</p>
               </details>
 
               <div class="separator"></div>
               <div class="panel-title-row compact">
-                <div>
-                  <span class="step-number">03</span>
-                  <h3>Betting abstraction</h3>
-                </div>
+                <div><span class="step-number">03</span><h3>Betting tree</h3></div>
               </div>
 
-              <label class="field field-wide">
-                <span>OOP bet sizes <em>% of pot</em></span>
-                <input id="oop-bets" name="oopBetSizes" value="50, 100" autocomplete="off" />
-              </label>
-              <label class="field field-wide">
-                <span>IP bet sizes after check <em>% of pot</em></span>
-                <input id="ip-bets" name="ipBetSizes" value="50, 100" autocomplete="off" />
-              </label>
-
+              <div id="postflop-betting">
+                <label class="field field-wide">
+                  <span>OOP bet sizes <em>% of pot</em></span>
+                  <input id="oop-bets" value="33, 75" autocomplete="off" />
+                </label>
+                <label class="field field-wide">
+                  <span>IP bet sizes after check <em>% of pot</em></span>
+                  <input id="ip-bets" value="33, 75" autocomplete="off" />
+                </label>
+              </div>
+              <div id="preflop-betting" hidden>
+                <p class="builder-note">Push/fold mode has a fixed two-node tree so full 1,326-combo ranges remain practical in a static browser app.</p>
+              </div>
               <div class="tree-preview" id="tree-preview"></div>
 
               <div class="separator"></div>
               <div class="panel-title-row compact">
-                <div>
-                  <span class="step-number">04</span>
-                  <h3>Accuracy</h3>
-                </div>
+                <div><span class="step-number">04</span><h3>Accuracy</h3></div>
               </div>
-
               <label class="field field-wide">
-                <span>Iterations <output id="iterations-output" for="iterations">250,000</output></span>
-                <input id="iterations" name="iterations" type="range" min="10000" max="5000000" step="10000" value="500000" />
-                <small>More iterations generally reduce exact exploitability.</small>
+                <span>Iterations <output id="iterations-output" for="iterations">220,000</output></span>
+                <input id="iterations" type="range" min="10000" max="2000000" step="10000" value="220000" />
+                <small>More iterations generally reduce regret and estimated exploitability.</small>
               </label>
-
               <details class="advanced-settings">
                 <summary>Advanced settings</summary>
                 <div class="field-row advanced-grid">
-                  <label class="field">
-                    <span>Averaging delay</span>
-                    <input id="averaging-delay" name="averagingDelay" type="number" min="0" step="100" value="5000" />
-                  </label>
-                  <label class="field">
-                    <span>Random seed</span>
-                    <input id="seed" name="seed" type="number" min="1" step="1" value="20260808" />
-                  </label>
+                  <label class="field"><span>Averaging delay</span><input id="averaging-delay" type="number" min="0" step="100" value="3000" /></label>
+                  <label class="field"><span>Evaluation samples</span><input id="evaluation-samples" type="number" min="1000" step="1000" value="24000" /></label>
+                  <label class="field"><span>Random seed</span><input id="seed" type="number" min="1" step="1" value="20260812" /></label>
                 </div>
               </details>
 
               <div class="form-error" id="form-error" role="alert" hidden></div>
               <div class="solve-actions">
-                <button class="button button-primary solve-button" type="submit" id="solve-button">
-                  <span class="button-icon">◇</span>
-                  Solve strategy
-                </button>
+                <button class="button button-primary solve-button" type="submit" id="solve-button"><span class="button-icon">◇</span>Build &amp; solve</button>
                 <button class="button button-secondary" type="button" id="cancel-button" hidden>Cancel</button>
               </div>
-              <p class="local-note">Everything runs off-table in a Web Worker. This site sends no ranges or cards to a server.</p>
+              <p class="local-note">The solve runs locally in a Web Worker. No cards, ranges, or strategies are uploaded.</p>
             </form>
           </aside>
 
