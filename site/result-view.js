@@ -1,6 +1,7 @@
 import { HAND_CLASSES, cardToHtml, cardToString } from "../src/index.js";
 import {
   ACTION_COLORS,
+  STREET_META,
   escapeAttribute,
   escapeHtml,
   formatChips,
@@ -32,19 +33,41 @@ export function renderResult(result) {
   elements.progressView.hidden = true;
   elements.resultsView.hidden = false;
 
-  const board = result.config.board;
-  elements.resultBoard.innerHTML = board.map((card) => cardToHtml(card)).join(" ");
-  elements.metricExploitability.textContent = formatChips(result.evaluation.exploitability);
+  const street = result.abstraction?.street ?? result.config?.street ?? "river";
+  const meta = STREET_META[street] ?? STREET_META.river;
+  elements.resultStreet.textContent = meta.label.toUpperCase();
+  if (result.config.board?.length) {
+    elements.resultBoard.innerHTML = result.config.board.map((card) => cardToHtml(card)).join(" ");
+  } else {
+    elements.resultBoard.textContent = "SB vs BB · heads-up preflop";
+  }
+
+  const evaluation = result.evaluation;
+  const exact = evaluation.exact !== false;
+  elements.metricExploitabilityLabel.textContent = exact ? "Exploitability" : "MC exploitability est.";
+  elements.metricExploitability.textContent = formatChips(evaluation.exploitability);
   elements.metricExploitabilityPot.textContent = `${percent.format(
-    (result.evaluation.exploitability / result.config.pot) * 100,
+    (evaluation.exploitability / result.config.pot) * 100,
   )}% of pot`;
-  elements.metricOopEv.textContent = formatSigned(result.evaluation.profileValueOop);
+  elements.metricOopLabel.textContent = street === "preflop" ? "SB EV" : "OOP EV";
+  elements.metricOopEv.textContent = formatSigned(evaluation.profileValueOop);
   elements.metricDeals.textContent = formatCompact(result.compatibleDealWeight);
   elements.metricIterations.textContent = formatCompact(result.iterations);
   elements.metricRuntime.textContent = `${formatDuration(result.runtimeMs)} browser runtime`;
-  elements.accuracyNote.textContent = `Exact best-response exploitability for this finite tree: ${formatChips(
-    result.evaluation.exploitability,
-  )} (${percent.format((result.evaluation.exploitability / result.config.pot) * 100)}% of pot).`;
+
+  if (exact) {
+    elements.accuracyNote.textContent = `Exact information-consistent best responses for the finite river tree: ${formatChips(
+      evaluation.exploitability,
+    )} exploitability.`;
+  } else {
+    const samples = evaluation.evaluationSamples ?? result.config.evaluationSamples;
+    const errorText = Number.isFinite(evaluation.profileStandardError)
+      ? ` Profile EV standard error ≈ ${formatChips(evaluation.profileStandardError)}.`
+      : "";
+    elements.accuracyNote.textContent = `${evaluation.method ?? "Monte Carlo best-response estimate"} using ${number.format(
+      samples ?? 0,
+    )} evaluation samples.${errorText}`;
+  }
 
   elements.nodeSelect.innerHTML = result.nodes
     .map((node) => `<option value="${escapeAttribute(node.id)}">${escapeHtml(node.label)}</option>`)
@@ -56,7 +79,6 @@ export function renderResult(result) {
 
 export function renderNode() {
   if (!latestResult || !elements) return;
-
   const node =
     latestResult.nodes.find((candidate) => candidate.id === elements.nodeSelect.value) ??
     latestResult.nodes[0];
@@ -74,7 +96,6 @@ export function renderNode() {
   const aggregate = aggregateNodeByClass(node);
   const grid = [];
   let firstPopulated = null;
-
   for (const row of HAND_CLASSES) {
     for (const label of row) {
       const item = aggregate.get(label);
@@ -86,7 +107,6 @@ export function renderNode() {
         );
         continue;
       }
-
       if (!firstPopulated) firstPopulated = label;
       const frequencies = item.sums.map((value) => value / item.weight);
       const dominantIndex = maxIndex(frequencies);
@@ -115,10 +135,7 @@ export function renderNode() {
     });
   });
 
-  if (!selectedClassLabel || !aggregate.has(selectedClassLabel)) {
-    selectedClassLabel = firstPopulated;
-  }
-
+  if (!selectedClassLabel || !aggregate.has(selectedClassLabel)) selectedClassLabel = firstPopulated;
   if (selectedClassLabel) {
     elements.rangeGrid
       .querySelector(`[data-class="${cssEscape(selectedClassLabel)}"]`)
@@ -150,14 +167,13 @@ function renderComboInspector(node, classLabel) {
     elements.selectedClass.textContent = "Select a hand";
     elements.classSummary.textContent = "";
     elements.comboHead.innerHTML = "";
-    elements.comboBody.innerHTML = `<tr><td class="empty-cell">Choose a populated grid cell above.</td></tr>`;
+    elements.comboBody.innerHTML = `<tr><td class="empty-cell">Choose a populated grid cell.</td></tr>`;
     return;
   }
 
   const rows = [];
   const aggregate = new Array(node.actionLabels.length).fill(0);
   let totalWeight = 0;
-
   node.combos.forEach((combo, index) => {
     if (combo.classLabel !== classLabel) return;
     const strategy = node.strategies[index];
@@ -181,7 +197,7 @@ function renderComboInspector(node, classLabel) {
   elements.classSummary.textContent = `${rows.length} combos · ${node.actionLabels[dominant]} ${percent.format(
     frequencies[dominant] * 100,
   )}%`;
-  elements.comboHead.innerHTML = `<tr><th>Combo</th><th>Made hand</th><th>Weight</th>${node.actionLabels
+  elements.comboHead.innerHTML = `<tr><th>Combo</th><th>Class</th><th>Weight</th>${node.actionLabels
     .map((label) => `<th>${escapeHtml(label)}</th>`)
     .join("")}</tr>`;
   elements.comboBody.innerHTML = rows
@@ -196,7 +212,7 @@ function renderComboInspector(node, classLabel) {
             )}%</span></td>`,
         )
         .join("");
-      return `<tr><td>${cards}</td><td>${escapeHtml(combo.category)}</td><td>${percent.format(
+      return `<tr><td>${cards}</td><td>${escapeHtml(combo.category ?? combo.classLabel)}</td><td>${percent.format(
         combo.weight * 100,
       )}%</td>${actions}</tr>`;
     })
@@ -222,9 +238,12 @@ export function exportResult() {
   const blob = new Blob([JSON.stringify(latestResult, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  const board = latestResult.config.board.map((card) => cardToString(card)).join("");
+  const street = latestResult.abstraction?.street ?? "spot";
+  const board = latestResult.config.board?.length
+    ? latestResult.config.board.map((card) => cardToString(card)).join("")
+    : "preflop";
   anchor.href = url;
-  anchor.download = `poker-solver-${board}-${latestResult.iterations}.json`;
+  anchor.download = `poker-solver-${street}-${board}-${latestResult.iterations}.json`;
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
