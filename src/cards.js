@@ -65,7 +65,7 @@ export function cardToHtml(card) {
   assertCard(card);
   const suit = SUITS[suitIndex(card)];
   const tone = suit === "h" || suit === "d" ? "red" : "black";
-  return `<span class="card card-${tone}">${RANKS[rankIndex(card)]}${SUIT_SYMBOLS[suit]|</span>`;
+  return `<span class="card card-${tone}">${RANKS[rankIndex(card)]}${SUIT_SYMBOLS[suit]}</span>`;
 }
 
 export function createDeck(excluded = []) {
