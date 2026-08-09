@@ -1,4 +1,4 @@
-import { RANGE_PRESETS } from "./src/index.js";
+import { RANGE_PRESETS } from "../src/index.js";
 
 export const ACTION_COLORS = ["#53657d", "#e7a63a", "#ed6176", "#9a73ea", "#42c8d8", "#59d29a"];
 export const number = new Intl.NumberFormat("en-US");
@@ -55,7 +55,6 @@ export const SCENARIOS = Object.freeze({
   },
 });
 
-
 export function formatFloat(value) {
   return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
@@ -91,4 +90,3 @@ export function escapeHtml(value) {
 export function escapeAttribute(value) {
   return escapeHtml(value).replaceAll("`", "&#096;");
 }
-

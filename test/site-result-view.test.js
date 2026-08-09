@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import {
   initializeResultView,
   renderResult,
-} from "../dist/result-view.js";
+} from "../dist/site/result-view.js";
 
 function fakeElement() {
   let html = "";
@@ -100,6 +100,11 @@ test("a completed browser solve renders its range grid and combo table", () => {
 });
 
 test("repository-root Pages publishing redirects into the static site", async () => {
-  const redirect = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const redirect = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   assert.match(redirect, /\.\/site\//);
+
+  const app = await readFile(new URL("../dist/site/app.js", import.meta.url), "utf8");
+  const worker = await readFile(new URL("../dist/site/solver-worker.js", import.meta.url), "utf8");
+  assert.match(app, /\.\.\/src\/index\.js/);
+  assert.match(worker, /\.\.\/src\/solver\.js/);
 });
