@@ -22,6 +22,7 @@ const RANK_VALUE = Object.freeze(
 );
 const ALL_CLASSES = Object.freeze(HAND_CLASSES.flat());
 const TOTAL_COMBOS = 1_326;
+const ORDER_CACHE = new Map();
 
 const RFI_TARGETS_100BB = Object.freeze({
   UTG: 0.175,
@@ -31,7 +32,7 @@ const RFI_TARGETS_100BB = Object.freeze({
   SB: 0.64,
 });
 
-// [total continuation, aggressive continuation]. The values are intentionally
+// [total continuation, aggressive continuation]. These are intentionally
 // smooth lookup targets rather than copied proprietary charts.
 const VS_OPEN_TARGETS = Object.freeze({
   HJ: { UTG: [0.11, 0.045] },
@@ -70,8 +71,8 @@ export function validatePreflopLookupConfig(raw = {}) {
   const spot = String(raw.preflopSpot ?? raw.spot ?? "rfi").trim().toLowerCase();
   if (!PREFLOP_LOOKUP_SPOTS.includes(spot)) throw new Error(`Unknown preflop spot: ${spot}`);
 
-  let heroPosition = normalizePosition(raw.heroPosition, spot === "rfi" ? "BTN" : "BB");
-  let villainPosition = normalizePosition(raw.villainPosition, spot === "rfi" ? "BB" : "BTN");
+  const heroPosition = normalizePosition(raw.heroPosition, spot === "rfi" ? "BTN" : "BB");
+  const villainPosition = normalizePosition(raw.villainPosition, spot === "rfi" ? "BB" : "BTN");
   if (heroPosition === villainPosition) throw new Error("Hero and villain positions must be different.");
   if (spot === "rfi" && heroPosition === "BB") throw new Error("The big blind cannot open first in.");
   if (spot === "vs-open" && POSITION_INDEX[villainPosition] >= POSITION_INDEX[heroPosition]) {
@@ -149,14 +150,25 @@ function aggressionScore(label) {
   return score;
 }
 
-function allocateTarget(targetFraction, scoreFunction) {
+function orderedClasses(cacheKey, scoreFunction) {
+  if (!ORDER_CACHE.has(cacheKey)) {
+    ORDER_CACHE.set(
+      cacheKey,
+      Object.freeze(
+        [...ALL_CLASSES].sort(
+          (left, right) => scoreFunction(right) - scoreFunction(left) || right.localeCompare(left),
+        ),
+      ),
+    );
+  }
+  return ORDER_CACHE.get(cacheKey);
+}
+
+function allocateTarget(targetFraction, scoreFunction, cacheKey) {
   const targetCombos = clamp(targetFraction, 0, 1) * TOTAL_COMBOS;
-  const ordered = [...ALL_CLASSES].sort(
-    (left, right) => scoreFunction(right) - scoreFunction(left) || right.localeCompare(left),
-  );
   const frequencies = new Map(ALL_CLASSES.map((label) => [label, 0]));
   let remaining = targetCombos;
-  for (const label of ordered) {
+  for (const label of orderedClasses(cacheKey, scoreFunction)) {
     if (remaining <= 0) break;
     const count = classComboCount(label);
     const frequency = clamp(remaining / count, 0, 1);
@@ -213,20 +225,29 @@ function lookupVsThreeBetTargets(hero, villain, stack) {
   return [clamp(continuation, 0.045, 0.28), clamp(fourBet, 0.018, 0.13)];
 }
 
-function strategyForClass(config, label) {
+function buildStrategyTable(config) {
+  const table = new Map();
+
   if (config.preflopSpot === "rfi") {
     const target = rfiTarget(config.heroPosition, config.stack);
+    const continueMap = allocateTarget(target, playabilityScore, "playability");
     if (config.heroPosition !== "SB") {
-      const open = allocateTarget(target, playabilityScore).get(label) ?? 0;
-      return [1 - open, open];
+      for (const label of ALL_CLASSES) {
+        const open = continueMap.get(label) ?? 0;
+        table.set(label, [1 - open, open]);
+      }
+      return table;
     }
 
-    const totalContinue = allocateTarget(target, playabilityScore).get(label) ?? 0;
     const raiseTarget = clamp(target * (config.stack < 30 ? 0.67 : 0.58), 0.24, 0.43);
-    const raise = allocateTarget(raiseTarget, aggressionScore).get(label) ?? 0;
-    const limp = Math.max(0, totalContinue - raise);
-    const normalizer = Math.max(1, raise + limp);
-    return [Math.max(0, 1 - raise - limp), limp / normalizer, raise / normalizer];
+    const raiseMap = allocateTarget(raiseTarget, aggressionScore, "aggression");
+    for (const label of ALL_CLASSES) {
+      const totalContinue = continueMap.get(label) ?? 0;
+      const raise = raiseMap.get(label) ?? 0;
+      const limp = Math.max(0, Math.min(1 - raise, totalContinue - raise));
+      table.set(label, [Math.max(0, 1 - raise - limp), limp, raise]);
+    }
+    return table;
   }
 
   if (config.preflopSpot === "vs-open") {
@@ -236,10 +257,15 @@ function strategyForClass(config, label) {
       config.stack,
       config.openSize,
     );
-    const continueFrequency = allocateTarget(continueTarget, playabilityScore).get(label) ?? 0;
-    const threeBet = allocateTarget(threeBetTarget, aggressionScore).get(label) ?? 0;
-    const call = Math.max(0, continueFrequency - threeBet);
-    return [Math.max(0, 1 - call - threeBet), call, threeBet];
+    const continueMap = allocateTarget(continueTarget, playabilityScore, "playability");
+    const aggressiveMap = allocateTarget(threeBetTarget, aggressionScore, "aggression");
+    for (const label of ALL_CLASSES) {
+      const continueFrequency = continueMap.get(label) ?? 0;
+      const threeBet = aggressiveMap.get(label) ?? 0;
+      const call = Math.max(0, Math.min(1 - threeBet, continueFrequency - threeBet));
+      table.set(label, [Math.max(0, 1 - call - threeBet), call, threeBet]);
+    }
+    return table;
   }
 
   const [continueTarget, fourBetTarget] = lookupVsThreeBetTargets(
@@ -247,10 +273,15 @@ function strategyForClass(config, label) {
     config.villainPosition,
     config.stack,
   );
-  const continueFrequency = allocateTarget(continueTarget, playabilityScore).get(label) ?? 0;
-  const fourBet = allocateTarget(fourBetTarget, aggressionScore).get(label) ?? 0;
-  const call = Math.max(0, continueFrequency - fourBet);
-  return [Math.max(0, 1 - call - fourBet), call, fourBet];
+  const continueMap = allocateTarget(continueTarget, playabilityScore, "playability");
+  const aggressiveMap = allocateTarget(fourBetTarget, aggressionScore, "aggression");
+  for (const label of ALL_CLASSES) {
+    const continueFrequency = continueMap.get(label) ?? 0;
+    const fourBet = aggressiveMap.get(label) ?? 0;
+    const call = Math.max(0, Math.min(1 - fourBet, continueFrequency - fourBet));
+    table.set(label, [Math.max(0, 1 - call - fourBet), call, fourBet]);
+  }
+  return table;
 }
 
 function actionLabels(config) {
@@ -288,7 +319,10 @@ function compatibleDealWeight(heroCombos, villainCombos) {
 function targetMetadata(config) {
   if (config.preflopSpot === "rfi") {
     const total = rfiTarget(config.heroPosition, config.stack);
-    return { totalContinue: total, aggressive: config.heroPosition === "SB" ? clamp(total * 0.58, 0.24, 0.43) : total };
+    return {
+      totalContinue: total,
+      aggressive: config.heroPosition === "SB" ? clamp(total * 0.58, 0.24, 0.43) : total,
+    };
   }
   if (config.preflopSpot === "vs-open") {
     const [totalContinue, aggressive] = lookupVsOpenTargets(
@@ -311,7 +345,8 @@ export function buildPreflopLookupResult(rawConfig = {}) {
   const config = validatePreflopLookupConfig(rawConfig);
   const heroCombos = expandRange(config.heroRange);
   const villainCombos = expandRange(config.villainRange);
-  const strategies = heroCombos.map((combo) => strategyForClass(config, combo.classLabel));
+  const strategyTable = buildStrategyTable(config);
+  const strategies = heroCombos.map((combo) => [...strategyTable.get(combo.classLabel)]);
   const labels = actionLabels(config);
   const target = targetMetadata(config);
   const serialize = (combo) => ({
