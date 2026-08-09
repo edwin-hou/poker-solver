@@ -1,10 +1,16 @@
 {
-  "name": "holdem-gto-solver",
-  "version": "1.0.0",
+  "name": "poker-solver",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Browser-based combo-level CFR+ solver for heads-up two-card Texas Hold'em river spots",
+  "homepage": "https://edwin-hou.github.io/poker-solver/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edwin-hou/poker-solver.git"
+  },
   "scripts": {
+    "pretest": "node scripts/build-site.mjs",
     "test": "node --test",
     "build": "node scripts/build-site.mjs",
     "serve": "node scripts/serve.mjs",
