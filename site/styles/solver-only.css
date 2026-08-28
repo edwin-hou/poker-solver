@@ -7,6 +7,8 @@ body {
     #07101d;
 }
 
+.topnav a[aria-current="page"] { color: var(--text); }
+
 .solver-section {
   padding: 22px 0 30px;
 }
@@ -92,6 +94,15 @@ body.showing-solution .solver-section {
 }
 
 @media (max-width: 760px) {
+  .topbar {
+    width: min(100% - 22px, 1440px);
+    min-height: 70px;
+    gap: 12px;
+  }
+
+  .brand small { display: none; }
+  .topnav { gap: 14px; font-size: 12px; }
+
   .solver-section {
     width: min(100% - 20px, 1440px);
     padding-top: 10px;
