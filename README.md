@@ -3,11 +3,25 @@
 [![CI](https://github.com/edwin-hou/poker-solver/actions/workflows/ci.yml/badge.svg)](https://github.com/edwin-hou/poker-solver/actions/workflows/ci.yml)
 [![Deploy GitHub Pages](https://github.com/edwin-hou/poker-solver/actions/workflows/pages.yml/badge.svg)](https://github.com/edwin-hou/poker-solver/actions/workflows/pages.yml)
 
-**Live solver:** <https://edwin-hou.github.io/poker-solver/>
+**Live site:** <https://edwin-hou.github.io/poker-solver/>
 
-Poker Solver is a focused browser application for studying two-card Texas Hold'em. The GitHub Pages site opens directly into the solver—there is no landing page, marketing section, methodology page, or footer before the workspace.
+Poker Solver is a focused browser application for studying two-card Texas Hold'em. GitHub Pages exposes two study tools: the solver workspace and the **Beat Fish** full-hand trainer.
 
-Everything runs locally in a Web Worker. Cards, ranges, and strategies are not uploaded to a server.
+Everything runs locally in the browser. Cards, ranges, strategies, and trainer hands are not uploaded to a server.
+
+## Beat Fish trainer
+
+`site/trainer.html` is an original exploit-training surface built around a transparent loose-passive live $1/$2/$3 population model.
+
+- Hands begin preflop and can continue through river.
+- The fish has one hidden exact two-card combo for the entire hand.
+- Separately, the trainer carries one weighted exact-combo belief range from preflop to river.
+- Every observed fish action updates that belief range by `P(action | combo, public state)`; board cards only remove impossible blockers.
+- **Reveal Range** displays the posterior range for the exact historical decision currently being viewed.
+- Back/forward controls rewind both the action history and the associated range state.
+- Coaching grades are population-exploit heuristics based on the visible posterior range, never the fish's hidden cards.
+
+The modeled opponent calls too wide preflop, 3-bets too little, continues too many pairs and draws, plays medium-strength hands passively, and is strongly value-weighted when taking large river aggression. This is a study model rather than solver output or a claim about every low-stakes player.
 
 ## Preflop modes
 
@@ -47,7 +61,7 @@ The card model uses a full 52-card deck, exact two-card combinations, exact publ
 
 ## Interface
 
-The solver-only workspace contains:
+The solver workspace contains:
 
 - Preflop, Flop, Turn, and River tabs;
 - street-specific presets;
@@ -57,6 +71,8 @@ The solver-only workspace contains:
 - decision-node navigation;
 - JSON export;
 - explicit exact-versus-estimated accuracy labels.
+
+The shared top navigation links the solver and Beat Fish trainer without adding a marketing landing page.
 
 ## Local development
 
@@ -68,7 +84,7 @@ npm test
 npm run serve
 ```
 
-Open <http://localhost:8000>.
+Open <http://localhost:8000>. The trainer is available at <http://localhost:8000/site/trainer.html>.
 
 The application has no front-end framework or runtime backend dependency. `npm run build` creates the static Pages artifact in `dist/`.
 
@@ -94,6 +110,7 @@ random
 src/
   cards.js              exact card and hand evaluation
   range.js              range parsing and combo expansion
+  fish-model.js         persistent loose-passive trainer posterior model
   preflop-lookup.js     approximate six-max chart engine
   preflop-solver.js     heads-up push/fold CFR+
   postflop-solver.js    sampled flop and turn engines
@@ -101,14 +118,18 @@ src/
   solve.js              unified dispatcher
 site/
   app.js                solver workspace controller
+  trainer.html          Beat Fish full-hand trainer page
+  trainer.js            trainer state machine, coaching, and history
   result-view.js        matrix and combo rendering
   solver-worker.js      browser worker entry point
-  partials/              solver configuration and results only
+  partials/             solver configuration and results only
   styles/
 test/
   all-streets.test.js
+  fish-model.test.js
   preflop-lookup.test.js
   site-result-view.test.js
+  trainer-page.test.js
 ```
 
 ## Accuracy and scope
@@ -116,17 +137,18 @@ test/
 Poker Solver is an educational browser-scale project, not a replacement for a distributed commercial solving platform.
 
 - The normal preflop charts are approximations.
+- Beat Fish is a transparent low-stakes population heuristic, not equilibrium output.
 - The CFR+ preflop tree is heads-up push/fold only.
 - Flop and turn do not optimize later-street betting.
-- Postflop raises are not yet included.
-- There is no multiway play, rake, ICM, node locking, or cloud solution database.
+- Postflop raises are not yet included in the solver tree; the trainer may present population-modeled raise decisions separately.
+- There is no multiway solver, rake, ICM, node locking, or cloud solution database.
 - River exploitability is exact only for its configured restricted tree.
 
-See [docs/SCOPE.md](docs/SCOPE.md) and [docs/ALGORITHM.md](docs/ALGORITHM.md) for the precise game definitions.
+See [docs/SCOPE.md](docs/SCOPE.md) and [docs/ALGORITHM.md](docs/ALGORITHM.md) for the precise solver game definitions.
 
 ## Responsible use
 
-Use Poker Solver for off-table study and research. Do not use it for assistance during live or online play where doing so violates platform rules or applicable law.
+Use Poker Solver and Beat Fish for off-table study and research. Do not use them for assistance during live or online play where doing so violates platform rules or applicable law.
 
 ## License
 
