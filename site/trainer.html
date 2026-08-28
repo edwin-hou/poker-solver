@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07111f" />
+    <meta
+      name="description"
+      content="Beat Fish is an interactive live low-stakes poker trainer with a consistent loose-passive opponent range from preflop through river."
+    />
+    <title>Beat Fish · Poker Solver</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles/base.css" />
+    <link rel="stylesheet" href="styles/trainer.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Poker Solver home">
+        <span class="brand-mark" aria-hidden="true"><span>A</span><span>♠</span></span>
+        <span><strong>Poker Solver</strong><small>Study tools</small></span>
+      </a>
+      <nav class="topnav" aria-label="Poker Solver pages">
+        <a href="./">Solver</a>
+        <a href="trainer.html" aria-current="page">Beat Fish</a>
+      </nav>
+    </header>
+
+    <main class="trainer-shell shell">
+      <section class="trainer-intro">
+        <div>
+          <div class="eyebrow">Live exploit trainer</div>
+          <h1>Beat Fish</h1>
+          <p>
+            Play a full hand against a transparent loose-passive $1/$2/$3 population model. Make the decision first,
+            then study the feedback and the fish range that logically survives the action so far.
+          </p>
+        </div>
+        <div class="profile-note">
+          <strong>Modeled opponent</strong>
+          <span>Wide calls · low 3-bet · sticky pairs/draws · passive medium strength · under-bluffed big river aggression</span>
+          <small>Population-training heuristic, not a GTO solution or a claim about every low-stakes player.</small>
+        </div>
+      </section>
+
+      <section class="trainer-layout" aria-label="Beat Fish hand trainer">
+        <div class="table-panel">
+          <div class="table-head">
+            <div>
+              <span class="street-pill" id="street-pill">Preflop</span>
+              <span class="spot-label" id="spot-label">BTN vs BB fish · 100bb</span>
+            </div>
+            <div class="pot-display"><small>Pot</small><strong id="pot-label">$6</strong></div>
+          </div>
+
+          <div class="poker-table" aria-label="Poker table state">
+            <div class="seat seat-fish">
+              <div class="seat-label"><strong>Fish</strong><span id="fish-stack">$300</span></div>
+              <div class="card-row card-backs" id="fish-cards" aria-label="Fish hole cards hidden">
+                <span class="card-back">?</span><span class="card-back">?</span>
+              </div>
+              <div class="seat-action" id="fish-status">Waiting for your action</div>
+            </div>
+
+            <div class="board-zone">
+              <span class="board-caption">Board</span>
+              <div class="card-row board-row" id="board-cards" aria-live="polite">
+                <span class="empty-card">—</span><span class="empty-card">—</span><span class="empty-card">—</span><span class="empty-card">—</span><span class="empty-card">—</span>
+              </div>
+            </div>
+
+            <div class="seat seat-hero">
+              <div class="seat-label"><strong>You · BTN</strong><span id="hero-stack">$300</span></div>
+              <div class="card-row" id="hero-cards" aria-label="Your hole cards"></div>
+              <div class="seat-action" id="hero-status">Decision pending</div>
+            </div>
+          </div>
+
+          <div class="hand-log-wrap">
+            <div class="section-kicker">Action thread</div>
+            <ol class="hand-log" id="hand-log"></ol>
+          </div>
+        </div>
+
+        <aside class="decision-panel">
+          <div class="history-bar">
+            <button type="button" class="history-button" id="history-back" aria-label="Previous decision">←</button>
+            <div><span>Study history</span><strong id="history-label">1 / 1 · Preflop</strong></div>
+            <button type="button" class="history-button" id="history-forward" aria-label="Next decision">→</button>
+          </div>
+
+          <div class="question-block">
+            <div class="section-kicker" id="question-kicker">Your decision</div>
+            <h2 id="question-title">What is your preflop plan?</h2>
+            <p id="question-copy">Choose the action you would actually take before revealing the fish range.</p>
+            <div class="answer-options" id="answer-options"></div>
+          </div>
+
+          <div class="feedback-panel" id="feedback-panel" hidden aria-live="polite">
+            <div class="feedback-grade" id="feedback-grade"></div>
+            <div>
+              <strong id="feedback-title"></strong>
+              <p id="feedback-copy"></p>
+            </div>
+          </div>
+
+          <div class="study-actions">
+            <button type="button" class="button button-secondary" id="reveal-range">Reveal range</button>
+            <button type="button" class="button button-primary" id="new-hand">New hand</button>
+          </div>
+          <p class="decision-note" id="decision-note">
+            Feedback is exploit-oriented and uses the visible action history plus the modeled fish posterior—not the fish's hidden cards.
+          </p>
+        </aside>
+      </section>
+
+      <section class="range-panel" id="range-panel" hidden>
+        <div class="range-panel-head">
+          <div>
+            <div class="section-kicker">Range reveal</div>
+            <h2 id="range-title">Fish range at this moment</h2>
+            <p id="range-copy">Exact combo weights are carried forward from the prior action history.</p>
+          </div>
+          <button type="button" class="text-button" id="hide-range">Hide range</button>
+        </div>
+        <div class="range-layout">
+          <div>
+            <div class="range-grid" id="range-grid" aria-label="Fish 13 by 13 range matrix"></div>
+            <p class="range-legend">Brighter cells are more likely per exact combo relative to the rest of the fish's current range.</p>
+          </div>
+          <div class="range-sidebar">
+            <div class="range-stat-row">
+              <div><small>Possible combos</small><strong id="range-combos">—</strong></div>
+              <div><small>Effective combos</small><strong id="range-effective">—</strong></div>
+            </div>
+            <div>
+              <div class="section-kicker">Most represented classes</div>
+              <div class="top-classes" id="range-top"></div>
+            </div>
+            <div>
+              <div class="section-kicker">Why this range?</div>
+              <ol class="range-thread" id="range-thread"></ol>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="trainer.js"></script>
+  </body>
+</html>
