@@ -79,9 +79,10 @@ test("one posterior range survives a full preflop-to-river action thread", () =>
 });
 
 test("river raising is strongly value-weighted in the modeled fish population", () => {
-  const board = parseCards("Ac Kd 8h 2s 9c", { exact: 5 });
-  const strong = createFishRange({ board }).find((entry) => entry.classLabel === "AA");
-  const weak = createFishRange({ board }).find((entry) => entry.classLabel === "43o");
+  const board = parseCards("Ac Ad 8h 2s 9c", { exact: 5 });
+  const range = createFishRange({ board });
+  const strong = range.find((entry) => entry.classLabel === "A8s");
+  const weak = range.find((entry) => entry.classLabel === "43o");
   const context = { type: "postflop-vs-bet", board, betFraction: 0.75 };
   assert.ok(strong && weak);
   assert.ok(
