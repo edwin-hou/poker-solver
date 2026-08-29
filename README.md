@@ -11,17 +11,18 @@ Everything runs locally in the browser. Cards, ranges, strategies, and trainer h
 
 ## Beat Fish trainer
 
-`site/trainer.html` is an original exploit-training surface built around a transparent loose-passive live $1/$2/$3 population model.
+`site/trainer.html` is an original exploit-training surface built around a transparent basic loose-passive live $1/$2/$3 player archetype.
 
 - Hands begin preflop and can continue through river.
 - The fish has one hidden exact two-card combo for the entire hand.
-- Separately, the trainer carries one weighted exact-combo belief range from preflop to river.
-- Every observed fish action updates that belief range by `P(action | combo, public state)`; board cards only remove impossible blockers.
-- **Reveal Range** displays the posterior range for the exact historical decision currently being viewed.
+- Separately, the trainer carries one binary exact-combo range from preflop to river: each hand is either still plausible or removed.
+- The fish itself uses deterministic novice rules rather than mixed strategies: wide calls, rare premium 3-bets, passive medium-strength play, loose draw chasing, and value-heavy raises.
+- Every observed fish action filters the same existing range according to those rules; board cards remove impossible blockers.
+- **Reveal Range** displays the literal surviving range for the exact historical decision currently being viewed, with clear hand-type colors and exact combo counts.
 - Back/forward controls rewind both the action history and the associated range state.
-- Coaching grades are population-exploit heuristics based on the visible posterior range, never the fish's hidden cards.
+- Coaching grades are population-exploit heuristics based on the visible surviving range, never the fish's hidden cards.
 
-The modeled opponent calls too wide preflop, 3-bets too little, continues too many pairs and draws, plays medium-strength hands passively, and is strongly value-weighted when taking large river aggression. This is a study model rather than solver output or a claim about every low-stakes player.
+The modeled opponent understands the rules and obvious hand strength but does not construct balanced/GTO ranges. This is a study archetype rather than solver output or a claim about every low-stakes player.
 
 ## Preflop modes
 
@@ -110,7 +111,7 @@ random
 src/
   cards.js              exact card and hand evaluation
   range.js              range parsing and combo expansion
-  fish-model.js         persistent loose-passive trainer posterior model
+  fish-model.js         deterministic loose-passive trainer range model
   preflop-lookup.js     approximate six-max chart engine
   preflop-solver.js     heads-up push/fold CFR+
   postflop-solver.js    sampled flop and turn engines
@@ -137,7 +138,7 @@ test/
 Poker Solver is an educational browser-scale project, not a replacement for a distributed commercial solving platform.
 
 - The normal preflop charts are approximations.
-- Beat Fish is a transparent low-stakes population heuristic, not equilibrium output.
+- Beat Fish is a transparent deterministic low-stakes player archetype, not equilibrium output or empirical population frequencies.
 - The CFR+ preflop tree is heads-up push/fold only.
 - Flop and turn do not optimize later-street betting.
 - Postflop raises are not yet included in the solver tree; the trainer may present population-modeled raise decisions separately.
