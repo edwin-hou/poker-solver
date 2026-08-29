@@ -1,6 +1,7 @@
 export * from "./cards.js";
 export * from "./range.js";
 export * from "./fish-model.js";
+export * from "./trainer-tree.js";
 export * from "./solver.js";
 export * from "./postflop-solver.js";
 export * from "./preflop-solver.js";

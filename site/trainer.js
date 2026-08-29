@@ -7,16 +7,21 @@ import {
   compareScores,
   createDeck,
   createFishRange,
+  createTrainerTree,
   estimateHeroEquity,
   evaluate7,
   filterFishRange,
   fishRangeBucketLabels,
+  addTrainerTreeNode,
   observeFishAction,
+  partitionFishRange,
   postflopHandFeatures,
   preflopHandStrength,
   sampleFishAction,
   sampleFishCombo,
   summarizeFishRange,
+  trainerTreeChild,
+  trainerTreePath,
 } from "../src/index.js";
 
 const STARTING_STACK = 300;
@@ -41,6 +46,7 @@ const elements = {
   historyBack: $("#history-back"),
   historyForward: $("#history-forward"),
   historyLabel: $("#history-label"),
+  branchTrail: $("#branch-trail"),
   questionKicker: $("#question-kicker"),
   questionTitle: $("#question-title"),
   questionCopy: $("#question-copy"),
@@ -62,12 +68,24 @@ const elements = {
   rangeEffective: $("#range-effective"),
   rangeTop: $("#range-top"),
   rangeThread: $("#range-thread"),
+  responseExplorer: $("#response-explorer"),
+  responseSizingOptions: $("#response-sizing-options"),
+  responseActionOptions: $("#response-action-options"),
+  responseExplorerCopy: $("#response-explorer-copy"),
+  comboDetail: $("#range-combo-detail"),
+  comboDetailTitle: $("#range-combo-detail-title"),
+  comboDetailCopy: $("#range-combo-detail-copy"),
+  comboDetailList: $("#range-combo-detail-list"),
 };
 
 let state = null;
-let timeline = [];
+let tree = createTrainerTree();
+let currentNodeId = null;
+let pendingBranch = null;
 let historyIndex = 0;
 let rangeVisible = false;
+let rangeView = { momentId: null, choiceId: null, fishAction: null };
+let selectedRangeClass = null;
 
 function formatMoney(value) {
   return `$${Math.max(0, Math.round(value)).toLocaleString("en-US")}`;
@@ -94,9 +112,29 @@ function cloneRangeEvents(events) {
   return events.map((entry) => ({ ...entry }));
 }
 
+function cloneTrainerState(source) {
+  return {
+    ...source,
+    heroCards: [...source.heroCards],
+    fishCombo: { ...source.fishCombo, cards: [...source.fishCombo.cards] },
+    runout: [...source.runout],
+    board: [...source.board],
+    range: cloneFishRange(source.range),
+    actions: cloneActions(source.actions),
+    rangeEvents: cloneRangeEvents(source.rangeEvents),
+  };
+}
+
+function activePath() {
+  return currentNodeId ? trainerTreePath(tree, currentNodeId) : [];
+}
+
+function currentMoment() {
+  return activePath()[historyIndex] ?? null;
+}
+
 function snapshotMoment({ kind = "decision", title, copy, decision = null, kicker = null }) {
-  const moment = {
-    id: timeline.length + 1,
+  const moment = addTrainerTreeNode(tree, {
     kind,
     street: state.street,
     title,
@@ -105,7 +143,6 @@ function snapshotMoment({ kind = "decision", title, copy, decision = null, kicke
     decision,
     answer: null,
     feedback: null,
-    canContinue: false,
     board: [...state.board],
     pot: state.pot,
     heroStack: state.heroStack,
@@ -117,9 +154,13 @@ function snapshotMoment({ kind = "decision", title, copy, decision = null, kicke
     actions: cloneActions(state.actions),
     range: cloneFishRange(state.range),
     rangeEvents: cloneRangeEvents(state.rangeEvents),
-  };
-  timeline.push(moment);
-  historyIndex = timeline.length - 1;
+    stateBefore: cloneTrainerState(state),
+  }, pendingBranch ?? {});
+  pendingBranch = null;
+  currentNodeId = moment.id;
+  historyIndex = activePath().length - 1;
+  rangeView = { momentId: moment.id, choiceId: null, fishAction: null };
+  selectedRangeClass = null;
   render();
   return moment;
 }
@@ -161,9 +202,16 @@ function startNewHand() {
   const heroCards = randomCardPair();
   const initialRange = createFishRange({ heroCards });
   const fishCombo = sampleFishCombo(initialRange);
+  const runoutDeck = createDeck([...heroCards, ...fishCombo.cards]);
+  const runout = [];
+  while (runout.length < 5) {
+    const chosen = Math.floor(Math.random() * runoutDeck.length);
+    runout.push(runoutDeck.splice(chosen, 1)[0]);
+  }
   state = {
     heroCards,
     fishCombo,
+    runout,
     board: [],
     street: "preflop",
     pot: STARTING_POT,
@@ -183,9 +231,13 @@ function startNewHand() {
     heroStatus: "Decision pending",
     revealFish: false,
   };
-  timeline = [];
+  tree = createTrainerTree();
+  currentNodeId = null;
+  pendingBranch = null;
   historyIndex = 0;
   rangeVisible = false;
+  rangeView = { momentId: null, choiceId: null, fishAction: null };
+  selectedRangeClass = null;
   elements.rangePanel.hidden = true;
   pushHeroDecision(buildPreflopOpenDecision());
 }
@@ -378,20 +430,40 @@ function feedbackFor(decision, choiceId) {
 }
 
 function chooseAnswer(choiceId) {
-  const moment = timeline.at(-1);
-  if (!moment || historyIndex !== timeline.length - 1 || moment.kind !== "decision" || moment.answer) return;
+  const moment = currentMoment();
+  if (!moment || moment.kind !== "decision") return;
   if (!moment.decision.options.some((option) => option.id === choiceId)) return;
+  currentNodeId = moment.id;
+  historyIndex = activePath().length - 1;
   moment.answer = choiceId;
   moment.feedback = feedbackFor(moment.decision, choiceId);
-  moment.canContinue = true;
-  state.heroStatus = moment.decision.options.find((option) => option.id === choiceId)?.label ?? choiceId;
+  const hasImmediateFishResponse = fishResponseScenarios(moment)
+    .some((scenario) => scenario.choiceId === choiceId);
+  rangeView = {
+    momentId: moment.id,
+    choiceId: hasImmediateFishResponse ? choiceId : null,
+    fishAction: null,
+  };
+  selectedRangeClass = null;
   render();
 }
 
-function continueHand() {
-  const moment = timeline.at(-1);
-  if (!moment?.canContinue || historyIndex !== timeline.length - 1) return;
-  moment.canContinue = false;
+function exploreSelectedBranch() {
+  const moment = currentMoment();
+  if (!moment?.answer || moment.kind !== "decision") return;
+  const existing = trainerTreeChild(tree, moment.id, moment.answer);
+  if (existing) {
+    currentNodeId = existing.id;
+    historyIndex = activePath().length - 1;
+    rangeView = { momentId: existing.id, choiceId: null, fishAction: null };
+    selectedRangeClass = null;
+    render();
+    return;
+  }
+
+  state = cloneTrainerState(moment.stateBefore);
+  state.heroStatus = moment.decision.options.find((option) => option.id === moment.answer)?.label ?? moment.answer;
+  pendingBranch = { parentId: moment.id, choiceId: moment.answer };
   applyHeroChoice(moment.decision, moment.answer);
 }
 
@@ -523,11 +595,7 @@ function advanceStreet() {
   state.heroCommitted = 0;
   state.fishCommitted = 0;
   const targetCards = STREET_BOARD_COUNT[state.street];
-  const deck = createDeck([...state.heroCards, ...state.fishCombo.cards, ...state.board]);
-  while (state.board.length < targetCards) {
-    const chosen = Math.floor(Math.random() * deck.length);
-    state.board.push(deck.splice(chosen, 1)[0]);
-  }
+  state.board = state.runout.slice(0, targetCards);
   state.range = filterFishRange(state.range, [...state.heroCards, ...state.board]);
   const boardText = state.board.map(cardToString).join(" ");
   addRangeEvent(`${streetLabel(state.street)} ${boardText}: remove newly blocked exact combos. Every earlier action filter stays in force.`);
@@ -615,10 +683,7 @@ function finishHand(message, showdown) {
   let copy = message;
   if (showdown) {
     if (state.board.length < 5) {
-      while (state.board.length < 5) {
-        const deck = createDeck([...state.heroCards, ...state.fishCombo.cards, ...state.board]);
-        state.board.push(deck[Math.floor(Math.random() * deck.length)]);
-      }
+      state.board = [...state.runout];
       state.street = "river";
       state.range = filterFishRange(state.range, [...state.heroCards, ...state.board]);
     }
@@ -667,26 +732,196 @@ function bucketBreakdown(buckets, labels) {
     .join(" · ");
 }
 
+function fishResponseScenarios(moment) {
+  if (moment.kind !== "decision") return [];
+  const optionLabel = (choiceId) =>
+    moment.decision.options.find((option) => option.id === choiceId)?.label ?? choiceId;
+
+  if (moment.decision.type === "preflop-open") {
+    return [
+      {
+        choiceId: "open10",
+        label: optionLabel("open10"),
+        context: { type: "preflop-vs-open", openBb: 10 / 3 },
+        actions: ["fold", "call", "raise"],
+      },
+      {
+        choiceId: "open15",
+        label: optionLabel("open15"),
+        context: { type: "preflop-vs-open", openBb: 5 },
+        actions: ["fold", "call", "raise"],
+      },
+    ];
+  }
+
+  if (moment.decision.type === "postflop-after-check") {
+    return [
+      {
+        choiceId: "bet33",
+        label: optionLabel("bet33"),
+        context: { type: "postflop-vs-bet", board: moment.board, betFraction: 0.33 },
+        actions: ["fold", "call", "raise"],
+      },
+      {
+        choiceId: "bet75",
+        label: optionLabel("bet75"),
+        context: { type: "postflop-vs-bet", board: moment.board, betFraction: 0.75 },
+        actions: ["fold", "call", "raise"],
+      },
+    ];
+  }
+
+  if (moment.decision.type === "postflop-vs-donk") {
+    return [{
+      choiceId: "raise",
+      label: optionLabel("raise"),
+      context: { type: "postflop-vs-raise", board: moment.board },
+      actions: ["fold", "call"],
+    }];
+  }
+
+  return [];
+}
+
+function fishActionLabel(action, context) {
+  if (action === "raise" && context.type === "preflop-vs-open") return "3-bet";
+  return `${action[0].toUpperCase()}${action.slice(1)}`;
+}
+
+function renderResponseExplorer(moment) {
+  const scenarios = fishResponseScenarios(moment);
+  if (!scenarios.length) {
+    elements.responseExplorer.hidden = true;
+    return {
+      range: moment.range,
+      title: `Fish range · ${streetLabel(moment.street)} · current branch`,
+      copy: "Binary range: every exact combo shown here still fits this branch's full action thread.",
+    };
+  }
+
+  elements.responseExplorer.hidden = false;
+  if (rangeView.momentId !== moment.id) {
+    const answeredScenario = scenarios.find((scenario) => scenario.choiceId === moment.answer);
+    rangeView = {
+      momentId: moment.id,
+      choiceId: answeredScenario?.choiceId ?? null,
+      fishAction: null,
+    };
+    selectedRangeClass = null;
+  }
+
+  const selectedScenario = scenarios.find((scenario) => scenario.choiceId === rangeView.choiceId) ?? null;
+  elements.responseSizingOptions.innerHTML = [
+    `<button type="button" class="response-option${selectedScenario ? "" : " selected"}" data-response-choice="">Current branch <b>${moment.range.length}</b></button>`,
+    ...scenarios.map((scenario) =>
+      `<button type="button" class="response-option${selectedScenario?.choiceId === scenario.choiceId ? " selected" : ""}" data-response-choice="${scenario.choiceId}">${scenario.label}</button>`),
+  ].join("");
+  for (const button of elements.responseSizingOptions.querySelectorAll("[data-response-choice]")) {
+    button.addEventListener("click", () => {
+      rangeView = { momentId: moment.id, choiceId: button.dataset.responseChoice || null, fishAction: null };
+      selectedRangeClass = null;
+      renderRange(moment);
+    });
+  }
+
+  if (!selectedScenario) {
+    elements.responseExplorerCopy.textContent =
+      "Choose a hero sizing to split this exact range into the fish's fold, call, and raise buckets.";
+    elements.responseActionOptions.innerHTML = "";
+    return {
+      range: moment.range,
+      title: `Fish range · ${streetLabel(moment.street)} · current branch`,
+      copy: "Every shown combo survived the branch so far. Choose a sizing above to inspect the deterministic response split.",
+    };
+  }
+
+  const blockedCards = [...moment.heroCards, ...moment.board];
+  const partitions = partitionFishRange(moment.range, selectedScenario.context, blockedCards);
+  const selectedAction = selectedScenario.actions.includes(rangeView.fishAction)
+    ? rangeView.fishAction
+    : null;
+  elements.responseExplorerCopy.textContent =
+    `Facing ${selectedScenario.label}, every surviving combo goes to exactly one action. Select a response to highlight its literal combos.`;
+  elements.responseActionOptions.innerHTML = [
+    `<button type="button" class="response-action${selectedAction ? "" : " selected"}" data-fish-action="">Before response <b>${moment.range.length}</b></button>`,
+    ...selectedScenario.actions.map((action) =>
+      `<button type="button" class="response-action${selectedAction === action ? " selected" : ""}" data-fish-action="${action}">${fishActionLabel(action, selectedScenario.context)} <b>${partitions[action]?.length ?? 0}</b></button>`),
+  ].join("");
+  for (const button of elements.responseActionOptions.querySelectorAll("[data-fish-action]")) {
+    button.addEventListener("click", () => {
+      rangeView = {
+        momentId: moment.id,
+        choiceId: selectedScenario.choiceId,
+        fishAction: button.dataset.fishAction || null,
+      };
+      selectedRangeClass = null;
+      renderRange(moment);
+    });
+  }
+
+  if (!selectedAction) {
+    return {
+      range: moment.range,
+      title: `Fish range before responding to ${selectedScenario.label}`,
+      copy: "This is the exact range reaching the decision. The response counts above are exhaustive and mutually exclusive.",
+    };
+  }
+
+  return {
+    range: partitions[selectedAction] ?? [],
+    title: `Fish ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} range facing ${selectedScenario.label}`,
+    copy: `Only exact combos assigned to ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} are shown. There are no mixed actions or probability weights.`,
+  };
+}
+
+function renderComboDetail(range) {
+  const combos = selectedRangeClass
+    ? range.filter((entry) => entry.classLabel === selectedRangeClass)
+    : [];
+  if (!selectedRangeClass) {
+    elements.comboDetailTitle.textContent = "Select a hand class";
+    elements.comboDetailCopy.textContent = "Click any colored matrix cell to list every exact suit combo in this range.";
+    elements.comboDetailList.innerHTML = "";
+    return;
+  }
+
+  elements.comboDetailTitle.textContent = `${selectedRangeClass} · ${combos.length} exact combo${combos.length === 1 ? "" : "s"}`;
+  elements.comboDetailCopy.textContent = combos.length
+    ? "These are the literal suit combinations assigned to the selected range or fish response."
+    : "No exact suit combinations from this hand class take the selected action.";
+  elements.comboDetailList.innerHTML = combos
+    .map((entry) => `<span class="exact-combo">${entry.display}</span>`)
+    .join("");
+}
+
 function renderRange(moment) {
-  const summary = summarizeFishRange(moment.range, moment.board);
+  const displayed = renderResponseExplorer(moment);
+  const displayedRange = displayed.range;
+  const summary = summarizeFishRange(displayedRange, moment.board);
   const labels = fishRangeBucketLabels(moment.board);
   const flatClasses = HAND_CLASSES.flat();
-  elements.rangeTitle.textContent = `Fish range · ${streetLabel(moment.street)} · moment ${historyIndex + 1}`;
-  elements.rangeCopy.textContent =
-    "Binary range: every exact combo shown here either still fits the full action thread or it does not. Board cards remove blockers; fish actions filter hands instead of assigning mixed frequencies.";
+  elements.rangeTitle.textContent = displayed.title;
+  elements.rangeCopy.textContent = displayed.copy;
 
   elements.rangeGrid.innerHTML = flatClasses
     .map((label) => {
       const info = summary.byClass[label];
       const total = classComboCount(label);
       if (!info) {
-        return `<div class="fish-range-cell excluded" title="${label}: not in the fish range"><strong>${label}</strong><small>—</small></div>`;
+        return `<button type="button" class="fish-range-cell excluded" data-range-class="${label}" title="${label}: not in this range"><strong>${label}</strong><small>—</small></button>`;
       }
       const gradient = rangeCellGradient(info.buckets);
       const breakdown = bucketBreakdown(info.buckets, labels);
-      return `<div class="fish-range-cell present" style="background:${gradient}" title="${label}: ${info.count}/${total} exact combos remain · ${breakdown}"><strong>${label}</strong><small>${info.count}/${total}</small></div>`;
+      const exactCombos = displayedRange.filter((entry) => entry.classLabel === label).map((entry) => entry.display).join(", ");
+      return `<button type="button" class="fish-range-cell present${selectedRangeClass === label ? " selected" : ""}" data-range-class="${label}" style="background:${gradient}" title="${label}: ${info.count}/${total} exact combos · ${breakdown} · ${exactCombos}"><strong>${label}</strong><small>${info.count}/${total}</small></button>`;
     })
     .join("");
+  for (const button of elements.rangeGrid.querySelectorAll("[data-range-class]")) {
+    button.addEventListener("click", () => {
+      selectedRangeClass = button.dataset.rangeClass;
+      renderRange(moment);
+    });
+  }
 
   elements.rangeLegend.innerHTML = RANGE_BUCKETS
     .map((key) => `<span><i class="range-swatch bucket-${key}"></i>${labels[key]}</span>`)
@@ -699,6 +934,7 @@ function renderRange(moment) {
   elements.rangeThread.innerHTML = moment.rangeEvents
     .map((entry) => `<li><strong>${streetLabel(entry.street)}:</strong> ${entry.text.replace(/^\w+:\s*/, "")}</li>`)
     .join("");
+  renderComboDetail(displayedRange);
 }
 
 function renderCards(moment) {
@@ -717,7 +953,8 @@ function renderCards(moment) {
 }
 
 function renderDecision(moment) {
-  const activeMoment = historyIndex === timeline.length - 1;
+  const path = activePath();
+  const activeMoment = historyIndex === path.length - 1;
   elements.questionKicker.textContent = moment.kicker ?? (moment.kind === "decision" ? "Your decision" : "Hand complete");
   elements.questionTitle.textContent = moment.title;
   elements.questionCopy.textContent = moment.copy;
@@ -730,19 +967,22 @@ function renderDecision(moment) {
       button.className = "answer-button";
       if (moment.answer === option.id) button.classList.add("selected");
       if (moment.answer && moment.decision.recommended === option.id) button.classList.add("recommended");
-      button.disabled = !activeMoment || Boolean(moment.answer);
-      button.innerHTML = `<span class="answer-label"><strong>${option.label}</strong><small>${option.detail}</small></span>`;
+      const savedBranch = trainerTreeChild(tree, moment.id, option.id);
+      button.setAttribute("aria-pressed", String(moment.answer === option.id));
+      button.innerHTML = `<span class="answer-label"><strong>${option.label}</strong><small>${option.detail}</small></span>${savedBranch ? '<span class="branch-saved">Saved branch</span>' : ""}`;
       button.addEventListener("click", () => chooseAnswer(option.id));
       elements.answerOptions.append(button);
     }
 
-    if (activeMoment && moment.canContinue) {
-      const continueButton = document.createElement("button");
-      continueButton.type = "button";
-      continueButton.className = "button button-primary";
-      continueButton.textContent = "Continue hand →";
-      continueButton.addEventListener("click", continueHand);
-      elements.answerOptions.append(continueButton);
+    if (moment.answer) {
+      const exploreButton = document.createElement("button");
+      exploreButton.type = "button";
+      exploreButton.className = "button button-primary explore-branch";
+      exploreButton.textContent = trainerTreeChild(tree, moment.id, moment.answer)
+        ? "View saved branch →"
+        : "Explore this branch →";
+      exploreButton.addEventListener("click", exploreSelectedBranch);
+      elements.answerOptions.append(exploreButton);
     }
   }
 
@@ -755,17 +995,38 @@ function renderDecision(moment) {
     elements.feedbackPanel.hidden = true;
   }
 
-  if (!activeMoment) {
-    elements.decisionNote.textContent = "Reviewing history. Reveal Range also rewinds to this exact decision. Use → to return to the live hand.";
+  if (!activeMoment && moment.kind === "decision") {
+    elements.decisionNote.textContent = "Reviewing an earlier fork. Every action remains selectable; exploring it creates or reopens a saved counterfactual branch without deleting the others.";
   } else if (moment.kind === "complete") {
-    elements.decisionNote.textContent = "Use ← to revisit every earlier decision with the exact range state available at that moment, or start a new hand.";
+    elements.decisionNote.textContent = "Use ← or the branch trail to revisit any earlier fork. Saved alternatives keep their own board, pot, action thread, and exact fish range.";
   } else {
-    elements.decisionNote.textContent = "Feedback uses only the visible action history and the surviving modeled range—not the fish's hidden cards.";
+    elements.decisionNote.textContent = "Choose any action for feedback, then explore it. You can return and select every other action or sizing; completed branches stay saved.";
+  }
+}
+
+function renderBranchTrail(path) {
+  elements.branchTrail.innerHTML = path
+    .map((node, index) => {
+      if (index === 0) {
+        return `<button type="button" class="branch-crumb${historyIndex === index ? " current" : ""}" data-branch-index="${index}">Start</button>`;
+      }
+      const parent = path[index - 1];
+      const choice = parent.decision?.options.find((option) => option.id === node.parentChoice);
+      const label = choice?.label ?? node.parentChoice;
+      return `<span aria-hidden="true">›</span><button type="button" class="branch-crumb${historyIndex === index ? " current" : ""}" data-branch-index="${index}">${label}</button>`;
+    })
+    .join("");
+  for (const button of elements.branchTrail.querySelectorAll("[data-branch-index]")) {
+    button.addEventListener("click", () => {
+      historyIndex = Number(button.dataset.branchIndex);
+      render();
+    });
   }
 }
 
 function render() {
-  const moment = timeline[historyIndex];
+  const path = activePath();
+  const moment = path[historyIndex];
   if (!moment) return;
   elements.streetPill.textContent = streetLabel(moment.street);
   elements.spotLabel.textContent = "BTN vs BB fish · $1/$2/$3 live model · 100bb";
@@ -773,15 +1034,19 @@ function render() {
   elements.heroStack.textContent = formatMoney(moment.heroStack);
   elements.fishStack.textContent = formatMoney(moment.fishStack);
   elements.fishStatus.textContent = moment.fishStatus;
-  elements.heroStatus.textContent = moment.heroStatus;
-  elements.historyLabel.textContent = `${historyIndex + 1} / ${timeline.length} · ${streetLabel(moment.street)}`;
+  const selectedOption = moment.kind === "decision" && moment.answer
+    ? moment.decision.options.find((option) => option.id === moment.answer)
+    : null;
+  elements.heroStatus.textContent = selectedOption?.label ?? moment.heroStatus;
+  elements.historyLabel.textContent = `${historyIndex + 1} / ${path.length} · ${streetLabel(moment.street)} · ${tree.nodes.size} saved`;
   elements.historyBack.disabled = historyIndex === 0;
-  elements.historyForward.disabled = historyIndex === timeline.length - 1;
+  elements.historyForward.disabled = historyIndex === path.length - 1;
   elements.handLog.innerHTML = moment.actions.length
     ? moment.actions.map((entry) => `<li><strong>${entry.actor}:</strong> ${entry.text}</li>`).join("")
     : "<li>No action yet.</li>";
   renderCards(moment);
   renderDecision(moment);
+  renderBranchTrail(path);
   if (rangeVisible) {
     elements.rangePanel.hidden = false;
     renderRange(moment);
@@ -798,7 +1063,7 @@ elements.historyBack.addEventListener("click", () => {
 });
 
 elements.historyForward.addEventListener("click", () => {
-  if (historyIndex < timeline.length - 1) {
+  if (historyIndex < activePath().length - 1) {
     historyIndex += 1;
     render();
   }

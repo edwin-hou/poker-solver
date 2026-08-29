@@ -38,7 +38,7 @@
           <h1>Beat Fish</h1>
           <p>
             Play a full hand against a basic loose-passive $1/$2/$3 player. Make the decision first,
-            then study the feedback and the literal set of hands that still fits every action from preflop onward.
+            then branch into every alternative line and inspect the literal set of hands that takes each action.
           </p>
         </div>
         <div class="profile-note">
@@ -93,6 +93,10 @@
             <div><span>Study history</span><strong id="history-label">1 / 1 · Preflop</strong></div>
             <button type="button" class="history-button" id="history-forward" aria-label="Next decision">→</button>
           </div>
+          <div class="branch-trail-wrap">
+            <span>Active branch</span>
+            <div class="branch-trail" id="branch-trail" aria-label="Active decision branch"></div>
+          </div>
 
           <div class="question-block">
             <div class="section-kicker" id="question-kicker">Your decision</div>
@@ -128,11 +132,28 @@
           </div>
           <button type="button" class="text-button" id="hide-range">Hide range</button>
         </div>
+        <div class="response-explorer" id="response-explorer" hidden>
+          <div>
+            <div class="section-kicker">Facing each sizing</div>
+            <h3>Exact fish response ranges</h3>
+            <p id="response-explorer-copy">Choose a hero sizing to split the current range by fish action.</p>
+          </div>
+          <div class="response-controls">
+            <div class="response-options" id="response-sizing-options" aria-label="Hero action or sizing"></div>
+            <div class="response-actions" id="response-action-options" aria-label="Fish response"></div>
+          </div>
+        </div>
         <div class="range-layout">
           <div>
             <div class="range-grid" id="range-grid" aria-label="Fish 13 by 13 range matrix"></div>
             <div class="range-color-legend" id="range-color-legend" aria-label="Range color legend"></div>
-            <p class="range-legend">Colors describe the surviving hand type, not probability. Each cell shows how many exact suit combos remain, such as 4/4 or 3/12.</p>
+            <p class="range-legend">Colors describe the surviving hand type, not probability. Each cell shows how many exact suit combos remain, such as 4/4 or 3/12. Click a cell to list the literal suit combinations.</p>
+            <div class="range-combo-detail" id="range-combo-detail">
+              <div class="section-kicker">Exact combos</div>
+              <strong id="range-combo-detail-title">Select a hand class</strong>
+              <p id="range-combo-detail-copy">Click any colored matrix cell to list every exact suit combo in this range.</p>
+              <div class="exact-combo-list" id="range-combo-detail-list"></div>
+            </div>
           </div>
           <div class="range-sidebar">
             <div class="range-stat-row">

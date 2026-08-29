@@ -289,6 +289,20 @@ export function observeFishAction(range, context, observedAction, blockedCards =
   return filtered;
 }
 
+/**
+ * Split a binary range into the exact, mutually exclusive actions this model
+ * takes in a spot. No combo is copied into multiple actions and no frequency
+ * or probability is attached to an entry.
+ */
+export function partitionFishRange(range, context, blockedCards = []) {
+  const partitions = {};
+  for (const entry of filterFishRange(range, blockedCards)) {
+    const action = fishActionForCombo(entry, context);
+    (partitions[action] ??= []).push(entry);
+  }
+  return partitions;
+}
+
 /** Pick one hidden exact combo uniformly from the current binary range. */
 export function sampleFishCombo(range, random = Math.random) {
   if (!range.length) throw new Error("Cannot sample from an empty fish range.");
