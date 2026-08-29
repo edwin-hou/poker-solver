@@ -240,9 +240,9 @@ export function fishActionForCombo(combo, context = {}) {
       return "raise";
     }
 
-    // Calling station behavior: pairs hang on, obvious draws chase too much,
-    // and small flop bets even get peeled by ace-high / two overcards.
-    if (features.category >= 1) return "call";
+    // Calling station behavior: private-card pairs hang on, obvious draws
+    // chase too much, and small flop bets even get peeled by ace-high / overs.
+    if (features.category === 1 && features.pairTier !== "board-pair") return "call";
     if (!river && (features.flushDraw || features.straightDraw)) {
       return betFraction <= 1 ? "call" : "fold";
     }
@@ -313,7 +313,7 @@ export function fishRangeBucket(combo, board = []) {
 
   const features = postflopHandFeatures(combo, board);
   if (features.category >= 2) return "strong";
-  if (features.category === 1) return "medium";
+  if (features.category === 1 && features.pairTier !== "board-pair") return "medium";
   if (features.flushDraw || features.straightDraw) return "draw";
   return "weak";
 }
