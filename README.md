@@ -18,8 +18,10 @@ Everything runs locally in the browser. Cards, ranges, strategies, and trainer h
 - Separately, the trainer carries one binary exact-combo range from preflop to river: each hand is either still plausible or removed.
 - The fish itself uses deterministic novice rules rather than mixed strategies: wide calls, rare premium 3-bets, passive medium-strength play, loose draw chasing, and value-heavy raises.
 - Every observed fish action filters the same existing range according to those rules; board cards remove impossible blockers.
-- **Reveal Range** displays the literal surviving range for the exact historical decision currently being viewed, with clear hand-type colors and exact combo counts.
-- Back/forward controls rewind both the action history and the associated range state.
+- Every answered hero action remains available. Exploring another action creates a persistent sibling branch instead of deleting the line already studied.
+- One fixed hidden fish hand and five-card runout are shared across sibling branches, so sizing comparisons are true counterfactuals.
+- **Reveal Range** displays the literal surviving range for the selected branch, partitions it into exact fold/call/raise combos facing each hero sizing, and lists literal suit combos on demand.
+- Back/forward controls and the branch trail rewind the board, pot, action history, and exact range state along the active branch.
 - Coaching grades are population-exploit heuristics based on the visible surviving range, never the fish's hidden cards.
 
 The modeled opponent understands the rules and obvious hand strength but does not construct balanced/GTO ranges. This is a study archetype rather than solver output or a claim about every low-stakes player.
@@ -112,6 +114,7 @@ src/
   cards.js              exact card and hand evaluation
   range.js              range parsing and combo expansion
   fish-model.js         deterministic loose-passive trainer range model
+  trainer-tree.js       persistent trainer decision branches
   preflop-lookup.js     approximate six-max chart engine
   preflop-solver.js     heads-up push/fold CFR+
   postflop-solver.js    sampled flop and turn engines
@@ -131,6 +134,7 @@ test/
   preflop-lookup.test.js
   site-result-view.test.js
   trainer-page.test.js
+  trainer-tree.test.js
 ```
 
 ## Accuracy and scope
