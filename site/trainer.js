@@ -10,6 +10,7 @@ import {
   estimateHeroEquity,
   evaluate7,
   filterFishRange,
+  fishRangeBucketLabels,
   observeFishAction,
   postflopHandFeatures,
   preflopHandStrength,
@@ -22,6 +23,7 @@ const STARTING_STACK = 300;
 const STARTING_POT = 6;
 const STREET_ORDER = ["preflop", "flop", "turn", "river"];
 const STREET_BOARD_COUNT = { preflop: 0, flop: 3, turn: 4, river: 5 };
+const RANGE_BUCKETS = ["strong", "medium", "draw", "weak"];
 
 const $ = (selector) => document.querySelector(selector);
 const elements = {
@@ -55,6 +57,7 @@ const elements = {
   rangeTitle: $("#range-title"),
   rangeCopy: $("#range-copy"),
   rangeGrid: $("#range-grid"),
+  rangeLegend: $("#range-color-legend"),
   rangeCombos: $("#range-combos"),
   rangeEffective: $("#range-effective"),
   rangeTop: $("#range-top"),
@@ -151,7 +154,7 @@ function observeFish(context, action, text) {
     action,
     [...state.heroCards, ...state.board],
   );
-  addRangeEvent(`${text} The prior range was reweighted by how often each exact combo takes that action.`);
+  addRangeEvent(`${text} Keep only exact hands this basic fish model would take that action with.`);
 }
 
 function startNewHand() {
@@ -173,7 +176,7 @@ function startNewHand() {
     rangeEvents: [
       {
         street: "preflop",
-        text: "Before any fish action, start from all exact two-card combos that do not conflict with your hole cards.",
+        text: "Before the fish acts, every exact two-card hand not blocked by your hole cards is still possible.",
       },
     ],
     fishStatus: "Waiting for your action",
@@ -216,7 +219,7 @@ function buildPreflopOpenDecision() {
   return {
     type: "preflop-open",
     title: `You look down at ${classLabel}. What is your plan?`,
-    copy: "It folds to you on the button. The big blind is the modeled loose-passive fish.",
+    copy: "It folds to you on the button. The big blind is the modeled basic loose-passive fish.",
     recommended,
     acceptable,
     reason,
@@ -234,12 +237,12 @@ function buildVsThreeBetDecision(amountToCall) {
   const recommended = strength >= 0.67 ? "call" : "fold";
   const acceptable = strength >= 0.61 && strength < 0.67 ? ["call"] : [];
   const reason = recommended === "call"
-    ? `The fish 3-bet range is much stronger than its calling range, but ${classLabel} retains enough strength to continue in position for ${formatMoney(amountToCall)}.`
-    : `A low-3-bet fish is heavily value-weighted here. ${classLabel} does not need to defend just because you opened it.`;
+    ? `This fish only 3-bets an obvious premium set of hands, but ${classLabel} retains enough strength to continue in position for ${formatMoney(amountToCall)}.`
+    : `A basic fish's rare 3-bet is extremely face-up here. ${classLabel} does not need to defend just because you opened it.`;
   return {
     type: "preflop-vs-3bet",
     title: `Fish 3-bets. Continue with ${classLabel}?`,
-    copy: `You are facing ${formatMoney(amountToCall)} more. Treat the population's rare preflop aggression with respect.`,
+    copy: `You are facing ${formatMoney(amountToCall)} more. Treat this rare preflop aggression as value-heavy.`,
     recommended,
     acceptable,
     reason,
@@ -271,14 +274,14 @@ function buildAfterCheckDecision() {
   }
   const percentEquity = Math.round(equity * 100);
   const reason = recommended === "bet75"
-    ? `You have about ${percentEquity}% showdown equity versus the surviving fish range. A caller-heavy pool rewards a bigger value bet instead of slow-playing.`
+    ? `You have about ${percentEquity}% showdown equity versus the surviving fish range. A caller-heavy player rewards a bigger value bet instead of slow-playing.`
     : recommended === "bet33"
       ? `You have about ${percentEquity}% equity versus the surviving range. A small bet extracts thin value or applies cheap pressure without bloating the pot unnecessarily.`
       : `You have about ${percentEquity}% equity versus the surviving range. This is a good place to protect showdown value and avoid forcing money into a range that is sticky when it continues.`;
   return {
     type: "postflop-after-check",
     title: `Fish checks the ${state.street}. What do you do?`,
-    copy: "Choose your exploit before looking at the posterior range.",
+    copy: "Choose your exploit before looking at the fish's surviving range.",
     recommended,
     acceptable,
     reason,
@@ -286,7 +289,7 @@ function buildAfterCheckDecision() {
     options: [
       { id: "check", label: "Check back", detail: "Realize equity and keep the pot controlled" },
       { id: "bet33", label: "Bet ⅓ pot", detail: "Thin value / cheap pressure" },
-      { id: "bet75", label: "Bet ¾ pot", detail: "Polarize and charge sticky continues" },
+      { id: "bet75", label: "Bet ¾ pot", detail: "Charge sticky continues" },
     ],
   };
 }
@@ -304,14 +307,14 @@ function buildVsDonkDecision(amountToCall) {
     recommended = "call";
   }
   const reason = recommended === "raise"
-    ? `Your estimated equity is ${Math.round(equity * 100)}% against the fish range that actually donks here. There is enough value to raise rather than merely bluff-catch.`
+    ? `Your estimated equity is ${Math.round(equity * 100)}% against the exact hands this fish model leads. There is enough value to raise rather than merely bluff-catch.`
     : recommended === "call"
-      ? `You need roughly ${Math.round(potOdds * 100)}% equity and estimate about ${Math.round(equity * 100)}%. Calling keeps the fish's weaker value and draws in.`
-      : `The price needs roughly ${Math.round(potOdds * 100)}% equity, while the posterior estimate is only about ${Math.round(equity * 100)}%. Especially on the river, fish aggression is not bluff-heavy enough to force a hero call.`;
+      ? `You need roughly ${Math.round(potOdds * 100)}% equity and estimate about ${Math.round(equity * 100)}%. Calling keeps the weaker value and draws in.`
+      : `The price needs roughly ${Math.round(potOdds * 100)}% equity, while the range estimate is only about ${Math.round(equity * 100)}%. Especially on the river, this fish's aggression is too value-heavy to force a hero call.`;
   return {
     type: "postflop-vs-donk",
     title: `Fish leads ${formatMoney(amountToCall)}. Your response?`,
-    copy: `The lead itself has already tightened the fish range. Pot: ${formatMoney(state.pot)}.`,
+    copy: `The lead itself has already removed many weak hands from the fish range. Pot: ${formatMoney(state.pot)}.`,
     recommended,
     acceptable,
     reason,
@@ -319,7 +322,7 @@ function buildVsDonkDecision(amountToCall) {
     amountToCall,
     options: [
       { id: "fold", label: "Fold", detail: "Do not pay off a value-heavy line" },
-      { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Keep bluffs and worse value in" },
+      { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Keep worse value and draws in" },
       { id: "raise", label: "Raise 3×", detail: "Exploit with a strong value edge" },
     ],
   };
@@ -331,8 +334,8 @@ function buildVsRaiseDecision(amountToCall) {
   const extraRespect = state.street === "river" ? 0.08 : 0.04;
   const recommended = equity >= potOdds + extraRespect ? "call" : "fold";
   const reason = recommended === "call"
-    ? `The check-raise range is strong, but your estimated ${Math.round(equity * 100)}% equity still clears the ${Math.round(potOdds * 100)}% price with a safety margin.`
-    : `This population does not find enough bluff raises. Your estimated ${Math.round(equity * 100)}% equity does not clear a ${Math.round(potOdds * 100)}% price once that under-bluff is respected.`;
+    ? `The raise range is strong, but your estimated ${Math.round(equity * 100)}% equity still clears the ${Math.round(potOdds * 100)}% price with a safety margin.`
+    : `This basic fish has no bluff-raise branch in this spot. Your estimated ${Math.round(equity * 100)}% equity does not clear a ${Math.round(potOdds * 100)}% price once that is respected.`;
   return {
     type: "postflop-vs-raise",
     title: `Fish raises. Do you pay it off?`,
@@ -343,7 +346,7 @@ function buildVsRaiseDecision(amountToCall) {
     equity,
     amountToCall,
     options: [
-      { id: "fold", label: "Fold", detail: "Exploit the under-bluffed raise" },
+      { id: "fold", label: "Fold", detail: "Exploit the face-up raise" },
       { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Continue only with enough range equity" },
     ],
   };
@@ -364,7 +367,7 @@ function feedbackFor(decision, choiceId) {
     return {
       grade: "B",
       title: "Reasonable, but not my first choice",
-      copy: `${decision.reason} I slightly prefer ${recommendedLabel}, but your line is defensible against this population model.`,
+      copy: `${decision.reason} I slightly prefer ${recommendedLabel}, but your line is defensible against this fish model.`,
     };
   }
   return {
@@ -412,7 +415,7 @@ function applyHeroChoice(decision, choice) {
     if (choice === "fold") {
       addAction("Hero", "folds to the 3-bet");
       state.heroStatus = "Folded to 3-bet";
-      finishHand("You folded to the fish's value-heavy 3-bet. Review the range reveal to see how much the raise compressed it.", false);
+      finishHand("You folded to the fish's face-up premium 3-bet. Reveal the range to see exactly which hands remain.", false);
       return;
     }
     commitTo("hero", state.fishCommitted);
@@ -442,7 +445,7 @@ function applyHeroChoice(decision, choice) {
     if (choice === "fold") {
       addAction("Hero", `folds to the ${state.street} lead`);
       state.heroStatus = "Folded";
-      finishHand("You folded to the fish lead. The range reveal preserves exactly what the lead represented at that decision.", false);
+      finishHand("You folded to the fish lead. The range reveal preserves exactly which hands can lead at that decision.", false);
       return;
     }
     if (choice === "call") {
@@ -467,7 +470,7 @@ function applyHeroChoice(decision, choice) {
     if (choice === "fold") {
       addAction("Hero", "folds to the raise");
       state.heroStatus = "Folded to raise";
-      finishHand("You folded to the fish raise. Step backward to compare your threshold with the range that survived to this node.", false);
+      finishHand("You folded to the fish raise. Step backward to compare your threshold with the literal range that reaches this node.", false);
       return;
     }
     commitTo("hero", state.fishCommitted);
@@ -484,7 +487,7 @@ function fishRespondPreflop(openAmount) {
     observeFish(context, action, `Preflop: fish folds to ${formatMoney(openAmount)}.`);
     addAction("Fish", `folds to ${formatMoney(openAmount)}`);
     state.fishStatus = "Folded";
-    finishHand("Fish folds. The revealed range now shows which hands this model is most likely to release to your sizing.", false);
+    finishHand("Fish folds. The revealed range shows the exact hands this model releases to your sizing.", false);
     return;
   }
   if (action === "call") {
@@ -527,7 +530,7 @@ function advanceStreet() {
   }
   state.range = filterFishRange(state.range, [...state.heroCards, ...state.board]);
   const boardText = state.board.map(cardToString).join(" ");
-  addRangeEvent(`${streetLabel(state.street)} ${boardText}: impossible blocked combos are removed, while every earlier action weight is preserved.`);
+  addRangeEvent(`${streetLabel(state.street)} ${boardText}: remove newly blocked exact combos. Every earlier action filter stays in force.`);
   addAction("Board", `${streetLabel(state.street)} · ${boardText}`);
   startFishStreet();
 }
@@ -559,7 +562,7 @@ function fishRespondToBet(amount, fraction) {
     observeFish(context, action, `${streetLabel(state.street)}: fish folds to your ${Math.round(fraction * 100)}% pot bet.`);
     addAction("Fish", "folds");
     state.fishStatus = "Folded";
-    finishHand("Fish folds to your bet. Reveal the range to see which exact combos were most likely to reach the fold.", false);
+    finishHand("Fish folds to your bet. Reveal the range to see the exact hands that reach the fold branch.", false);
     return;
   }
   if (action === "call") {
@@ -590,7 +593,7 @@ function fishRespondToRaise() {
     observeFish(context, action, `${streetLabel(state.street)}: fish folds after you raise its lead.`);
     addAction("Fish", "folds to the raise");
     state.fishStatus = "Folded to raise";
-    finishHand("Fish folds to your raise. The range reveal shows the value/draw region that was willing to lead but not continue.", false);
+    finishHand("Fish folds to your raise. The range reveal shows the exact value/draw region that was willing to lead but not continue.", false);
     return;
   }
   observeFish(context, action, `${streetLabel(state.street)}: fish calls after you raise its lead.`);
@@ -642,26 +645,56 @@ function classComboCount(label) {
   return label.endsWith("s") ? 4 : 12;
 }
 
+function rangeCellGradient(buckets) {
+  const total = RANGE_BUCKETS.reduce((sum, key) => sum + (buckets[key] ?? 0), 0);
+  if (!total) return "";
+  let cursor = 0;
+  const stops = [];
+  for (const key of RANGE_BUCKETS) {
+    const count = buckets[key] ?? 0;
+    if (!count) continue;
+    const start = cursor;
+    cursor += (count / total) * 100;
+    stops.push(`var(--range-${key}) ${start.toFixed(2)}% ${cursor.toFixed(2)}%`);
+  }
+  return `linear-gradient(135deg, ${stops.join(",")})`;
+}
+
+function bucketBreakdown(buckets, labels) {
+  return RANGE_BUCKETS
+    .filter((key) => (buckets[key] ?? 0) > 0)
+    .map((key) => `${labels[key]}: ${buckets[key]}`)
+    .join(" · ");
+}
+
 function renderRange(moment) {
-  const summary = summarizeFishRange(moment.range);
+  const summary = summarizeFishRange(moment.range, moment.board);
+  const labels = fishRangeBucketLabels(moment.board);
   const flatClasses = HAND_CLASSES.flat();
-  const densities = flatClasses.map((label) => (summary.byClass[label] ?? 0) / classComboCount(label));
-  const maxDensity = Math.max(...densities, 1e-12);
   elements.rangeTitle.textContent = `Fish range · ${streetLabel(moment.street)} · moment ${historyIndex + 1}`;
   elements.rangeCopy.textContent =
-    "This is the same exact-combo posterior carried through the hand. Board cards remove impossible combos; fish actions reweight the remaining combos instead of rebuilding a fresh street range.";
+    "Binary range: every exact combo shown here either still fits the full action thread or it does not. Board cards remove blockers; fish actions filter hands instead of assigning mixed frequencies.";
+
   elements.rangeGrid.innerHTML = flatClasses
-    .map((label, index) => {
-      const mass = summary.byClass[label] ?? 0;
-      const relative = Math.min(1, densities[index] / maxDensity);
-      return `<div class="fish-range-cell" style="--range-strength:${relative.toFixed(4)}" title="${label}: ${(mass * 100).toFixed(3)}% of current range"><strong>${label}</strong><small>${mass > 0 ? `${(mass * 100).toFixed(mass >= 0.01 ? 1 : 2)}%` : "—"}</small></div>`;
+    .map((label) => {
+      const info = summary.byClass[label];
+      const total = classComboCount(label);
+      if (!info) {
+        return `<div class="fish-range-cell excluded" title="${label}: not in the fish range"><strong>${label}</strong><small>—</small></div>`;
+      }
+      const gradient = rangeCellGradient(info.buckets);
+      const breakdown = bucketBreakdown(info.buckets, labels);
+      return `<div class="fish-range-cell present" style="background:${gradient}" title="${label}: ${info.count}/${total} exact combos remain · ${breakdown}"><strong>${label}</strong><small>${info.count}/${total}</small></div>`;
     })
     .join("");
+
+  elements.rangeLegend.innerHTML = RANGE_BUCKETS
+    .map((key) => `<span><i class="range-swatch bucket-${key}"></i>${labels[key]}</span>`)
+    .join("");
   elements.rangeCombos.textContent = summary.comboCount.toLocaleString("en-US");
-  elements.rangeEffective.textContent = Math.round(summary.effectiveCombos).toLocaleString("en-US");
-  elements.rangeTop.innerHTML = summary.topClasses
-    .slice(0, 10)
-    .map((entry) => `<span class="top-class"><b>${entry.classLabel}</b>${(entry.probability * 100).toFixed(1)}%</span>`)
+  elements.rangeEffective.textContent = summary.classCount.toLocaleString("en-US");
+  elements.rangeTop.innerHTML = RANGE_BUCKETS
+    .map((key) => `<span class="top-class"><i class="range-swatch bucket-${key}"></i><b>${labels[key]}</b>${summary.bucketCounts[key].toLocaleString("en-US")} combos</span>`)
     .join("");
   elements.rangeThread.innerHTML = moment.rangeEvents
     .map((entry) => `<li><strong>${streetLabel(entry.street)}:</strong> ${entry.text.replace(/^\w+:\s*/, "")}</li>`)
@@ -725,9 +758,9 @@ function renderDecision(moment) {
   if (!activeMoment) {
     elements.decisionNote.textContent = "Reviewing history. Reveal Range also rewinds to this exact decision. Use → to return to the live hand.";
   } else if (moment.kind === "complete") {
-    elements.decisionNote.textContent = "Use ← to revisit every earlier decision with the range state that was available at that moment, or start a new hand.";
+    elements.decisionNote.textContent = "Use ← to revisit every earlier decision with the exact range state available at that moment, or start a new hand.";
   } else {
-    elements.decisionNote.textContent = "Feedback uses only the visible action history and modeled posterior range—not the fish's hidden cards.";
+    elements.decisionNote.textContent = "Feedback uses only the visible action history and the surviving modeled range—not the fish's hidden cards.";
   }
 }
 
