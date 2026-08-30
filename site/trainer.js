@@ -218,6 +218,15 @@ function opponentById(id, source = state) {
   return source.opponents.find((opponent) => opponent.id === id) ?? null;
 }
 
+function preflopRoleFor(opponent, source = state) {
+  if (opponent.id === source.threeBettorId) return "threebet";
+  if (opponent.id === source.openerId) return "opened";
+  if (opponent.preflopAction === "call") return "cold-called";
+  if (opponent.preflopAction === "limp") return "limped";
+  if (["sb", "bb"].includes(opponent.id)) return "blind";
+  return "none";
+}
+
 function opponentsInPostflopOrder(source = state) {
   const order = ["sb", "bb", "utg", "hj", "co"];
   return order.map((id) => opponentById(id, source)).filter((opponent) => opponent && !opponent.folded);
@@ -493,15 +502,15 @@ function buildFacingThreeBetDecision() {
     openSize: state.openAmount / 3,
   }, classLabel);
   const [foldFrequency, callFrequency, fourBetFrequency] = lookup.strategy;
-  const premiumFourBet = ["AA", "KK"].includes(classLabel);
-  const callsPremiumThreeBet = ["QQ", "JJ", "TT", "AKs", "AKo", "AQs"].includes(classLabel);
-  const recommended = premiumFourBet ? "fourBetSmall" : callsPremiumThreeBet ? "callThreeBet" : "fold";
-  const acceptable = premiumFourBet ? ["fourBetLarge"] : [];
+  const premiumFourBet = ["AA", "KK", "QQ", "AKs"].includes(classLabel);
+  const callsContextualThreeBet = ["JJ", "TT", "99", "AKo", "AQs", "AQo", "AJs", "KQs"].includes(classLabel);
+  const recommended = premiumFourBet ? "fourBetSmall" : callsContextualThreeBet ? "callThreeBet" : "fold";
+  const acceptable = ["AA", "KK"].includes(classLabel) ? ["fourBetLarge"] : [];
   const reason = recommended === "fold"
-    ? `${classLabel} folds against this premium-only fish 3-bet range. Even if the 150bb baseline sometimes continues, a passive opponent's reraise plus the original opener behind removes the light 4-bets and marginal cold calls.`
+    ? `${classLabel} folds against this value-heavy but position-aware fish 3-bet range. Even if the 150bb baseline sometimes continues, a recreational player's reraise plus the original opener behind removes the weakest cold calls.`
     : recommended === "callThreeBet"
-      ? `${classLabel} has enough equity and 150bb implied value to continue, but not enough value to 4-bet into a fish range modeled as QQ+/AK. TT and 99 are explicitly never placed in the fish's own 4-bet range.`
-      : `${classLabel} is at the top of range and can 4-bet for value. ${formatMoney(state.smallTarget)} keeps QQ/AK calls available while avoiding a needlessly large pot against AA/KK.`;
+      ? `${classLabel} has enough equity and 150bb implied value to continue against a reraise range that widens with position and dead money. Calling keeps in hands such as JJ/AQ while avoiding an overplayed 4-bet.`
+      : `${classLabel} is strong enough to 4-bet for value against the modeled HJ/CO response to an UTG open. ${formatMoney(state.smallTarget)} keeps worse continues available while preserving room at 150bb.`;
   return {
     type: "preflop-facing-threebet",
     title: `You look down at ${classLabel} on the BTN. Face the 3-bet?`,
@@ -511,25 +520,27 @@ function buildFacingThreeBetDecision() {
     reason,
     choiceReasons: {
       fold: recommended === "fold"
-        ? `Correct. The fish's 3-bet is not a balanced solver range: it is modeled as QQ+/AK, with the original raiser still live. ${classLabel} lacks the equity and implied value to continue profitably.`
-        : `This is too tight at 150bb. ${classLabel} retains enough equity or implied value against QQ+/AK to continue in position.`,
+        ? `Correct. The fish's 3-bet is not a balanced solver range, but it now accounts for opener position, the reraise size, and prior action. ${classLabel} still lacks the equity and implied value to continue profitably.`
+        : `This is too tight at 150bb. ${classLabel} retains enough equity or implied value against the contextual value-heavy range to continue in position.`,
       callThreeBet: recommended === "callThreeBet"
         ? `Correct. Calling keeps the fish's full premium range intact, realizes the benefit of 150bb depth, and avoids turning ${classLabel} into an overplayed 4-bet.`
         : recommended === "fold"
           ? `This is a loose cold call into two strong ranges. The stack is deep, but the price is still large and domination makes the implied odds work against you.`
-          : `This leaves value on the table with the very top of range. The fish can still call a 4-bet with QQ/AK and continue with AA/KK.`,
+          : `This leaves value on the table with the top of range. The contextual fish range can call a 4-bet with hands such as JJ/QQ/AQ/AK and continue more aggressively with its strongest hands.`,
       fourBetSmall: recommended === "fourBetSmall"
-        ? `Correct. This is a pure value 4-bet against a premium-heavy fish range. The smaller size keeps worse premiums in and leaves postflop room at 150bb.`
-        : callsPremiumThreeBet
-          ? `This is the key overplay. A solver may 4-bet this hand against a balanced 3-bettor, but this fish is not balanced: it began with QQ+/AK, so ${classLabel} should usually call instead.`
-          : `This is a bluff into a range with almost no light 3-bets and very few folds. The modeled opponent is exactly the wrong target for it.`,
-      fourBetLarge: recommended === "fourBetSmall"
-        ? `Defensible with AA or KK, but larger than necessary. It folds out more QQ/AK and concentrates action in the opponent's AA/KK bucket.`
+        ? `Correct. This is a value 4-bet against a wider but still unbalanced fish range. The smaller size keeps worse reraises and calls in while leaving postflop room at 150bb.`
+        : callsContextualThreeBet
+          ? `This is the key overplay. The fish can reraise hands below QQ+/AK when position and dead money justify it, but its range is still value-heavy enough that ${classLabel} performs better as a call.`
+          : `This is a bluff into a range whose wider hands are still chosen for recognizable value. The modeled opponent does not fold enough of that range to support this hand as a 4-bet.`,
+      fourBetLarge: acceptable.includes("fourBetLarge")
+        ? `Defensible with AA or KK, but larger than necessary. It folds out more dominated continues and concentrates action in the opponent's strongest bucket.`
+        : recommended === "fourBetSmall"
+          ? `${classLabel} is strong enough for the smaller value 4-bet, but this larger size folds out too many of the wider contextual reraises you want to keep.`
         : `This magnifies the 4-bet error. The fish's range is already premium-heavy, so extra pressure does not create the folds a balanced bluff would need.`,
     },
     basis: {
-      title: "150bb solver baseline corrected for a fish 3-bet range",
-      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet against the lookup's balanced baseline. The recommendation is tightened against this opponent's deterministic QQ+/AK 3-bet range. That correction and the multiway cold-call node are disclosed best-response estimates, not an exact custom solve.`,
+      title: "150bb solver baseline corrected for a contextual fish range",
+      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet against the lookup's balanced baseline. The recommendation is adjusted for a fish 3-bet range that changes with opener position, sizing, dead money, and prior role. That correction and the multiway cold-call node are disclosed best-response estimates, not an exact custom solve.`,
     },
     openerId: state.openerId,
     threeBettorId: state.threeBettorId,
@@ -810,11 +821,18 @@ function applyHeroChoice(decision, choice) {
 }
 
 function opponentsRespondToIsolation(openAmount) {
-  const context = { type: "preflop-vs-open", openBb: openAmount / 3 };
   const responseOrder = ["sb", "bb", "utg", "hj", "co"];
   for (const id of responseOrder) {
     const opponent = opponentById(id);
     if (!opponent || opponent.folded) continue;
+    const context = {
+      type: "preflop-vs-open",
+      position: opponent.position,
+      openerPosition: "BTN",
+      openBb: openAmount / 3,
+      priorAction: preflopRoleFor(opponent),
+      coldCallerCount: state.limperCount,
+    };
     const action = sampleFishAction(opponent.combo, context);
     if (action === "raise") throw new Error("Curated multiway practice produced an unexpected preflop 3-bet.");
     observeOpponent(opponent, context, action, `Preflop: ${opponent.position} ${action}s facing ${formatMoney(openAmount)}.`);
@@ -838,6 +856,8 @@ function blindsRespondToOpen() {
     position: opponent.position,
     openerPosition: opener.position,
     openBb: state.openAmount / 3,
+    priorAction: "blind",
+    coldCallerCount: state.callerCount + 1,
   });
   for (const id of ["sb", "bb"]) {
     const opponent = opponentById(id);
@@ -865,6 +885,9 @@ function opponentsRespondToThreeBet(target) {
     position: opponent.position,
     threeBettorPosition: "BTN",
     threeBetBb: target / 3,
+    priorAction: preflopRoleFor(opponent),
+    openerPosition: opponentById(state.openerId)?.position,
+    coldCallerCount: state.callerCount,
   });
   for (const id of ["sb", "bb", "utg", "hj", "co"]) {
     const opponent = opponentById(id);
@@ -896,6 +919,9 @@ function opponentsRespondAfterHeroCallsThreeBet() {
       position: opponent.position,
       threeBettorPosition: threeBettor.position,
       threeBetBb: state.threeBetAmount / 3,
+      priorAction: preflopRoleFor(opponent),
+      openerPosition: opponentById(state.openerId)?.position,
+      coldCallerCount: 1,
     };
     const action = sampleFishAction(opponent.combo, context);
     if (action === "raise") throw new Error("Curated 3-bet practice produced an unexpected 4-bet after the hero called.");
@@ -922,6 +948,9 @@ function opponentsRespondToFourBet(target) {
       position: opponent.position,
       fourBettorPosition: "BTN",
       fourBetBb: target / 3,
+      priorAction: preflopRoleFor(opponent),
+      openerPosition: opponentById(state.openerId)?.position,
+      threeBettorPosition: opponentById(state.threeBettorId)?.position,
     };
     const action = sampleFishAction(opponent.combo, context);
     if (action === "raise") throw new Error("Curated 3-bet practice produced an unexpected 5-bet.");
@@ -1108,28 +1137,40 @@ function fishResponseScenarios(moment, opponent) {
     moment.decision.options.find((option) => option.id === choiceId)?.label ?? choiceId;
 
   if (moment.decision.type === "preflop-isolate" && !opponent.folded) {
+    const contextFor = (target) => ({
+      type: "preflop-vs-open",
+      position: opponent.position,
+      openerPosition: "BTN",
+      openBb: target / 3,
+      priorAction: preflopRoleFor(opponent, moment),
+      coldCallerCount: moment.limperCount,
+    });
     return [
       {
         choiceId: "isoSmall",
         label: optionLabel("isoSmall"),
-        context: { type: "preflop-vs-open", openBb: moment.decision.smallTarget / 3 },
+        context: contextFor(moment.decision.smallTarget),
         actions: [...RANGE_ACTIONS],
       },
       {
         choiceId: "isoLarge",
         label: optionLabel("isoLarge"),
-        context: { type: "preflop-vs-open", openBb: moment.decision.largeTarget / 3 },
+        context: contextFor(moment.decision.largeTarget),
         actions: [...RANGE_ACTIONS],
       },
     ];
   }
 
   if (moment.decision.type === "preflop-facing-open" && !opponent.folded) {
+    const opener = opponentById(moment.openerId, moment);
     const contextFor = (target) => ({
       type: "preflop-vs-threebet",
       position: opponent.position,
       threeBettorPosition: "BTN",
       threeBetBb: target / 3,
+      priorAction: preflopRoleFor(opponent, moment),
+      openerPosition: opener?.position,
+      coldCallerCount: moment.callerCount,
     });
     return [
       {
@@ -1148,11 +1189,16 @@ function fishResponseScenarios(moment, opponent) {
   }
 
   if (moment.decision.type === "preflop-facing-threebet" && !opponent.folded) {
+    const opener = opponentById(moment.openerId, moment);
+    const threeBettor = opponentById(moment.threeBettorId, moment);
     const contextFor = (target) => ({
       type: "preflop-vs-fourbet",
       position: opponent.position,
       fourBettorPosition: "BTN",
       fourBetBb: target / 3,
+      priorAction: preflopRoleFor(opponent, moment),
+      openerPosition: opener?.position,
+      threeBettorPosition: threeBettor?.position,
     });
     return [
       {

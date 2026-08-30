@@ -95,15 +95,19 @@ test("raised-pot practice includes an early open, cold call, and position-aware 
   assert.ok(opener);
   assert.ok(caller);
 
-  for (const target of [scenario.smallTarget, scenario.largeTarget]) {
-    for (const opponent of [opener, caller]) {
-      assert.equal(fishActionForCombo(opponent.combo, {
-        type: "preflop-vs-threebet",
-        position: opponent.position,
-        threeBettorPosition: "BTN",
-        threeBetBb: target / 3,
-      }), "call");
-    }
+  for (const opponent of [opener, caller]) {
+    const priorAction = opponent.id === scenario.openerId ? "opened" : "cold-called";
+    const context = (target) => ({
+      type: "preflop-vs-threebet",
+      position: opponent.position,
+      threeBettorPosition: "BTN",
+      threeBetBb: target / 3,
+      priorAction,
+      openerPosition: opener.position,
+      coldCallerCount: 1,
+    });
+    assert.equal(fishActionForCombo(opponent.combo, context(scenario.smallTarget)), "call");
+    assert.notEqual(fishActionForCombo(opponent.combo, context(scenario.largeTarget)), "raise");
   }
 
   const smallResponses = partitionFishRange(opener.range, {
@@ -111,18 +115,24 @@ test("raised-pot practice includes an early open, cold call, and position-aware 
     position: opener.position,
     threeBettorPosition: "BTN",
     threeBetBb: scenario.smallTarget / 3,
+    priorAction: "opened",
+    openerPosition: opener.position,
+    coldCallerCount: 1,
   }, heroCards);
   const largeResponses = partitionFishRange(opener.range, {
     type: "preflop-vs-threebet",
     position: opener.position,
     threeBettorPosition: "BTN",
     threeBetBb: scenario.largeTarget / 3,
+    priorAction: "opened",
+    openerPosition: opener.position,
+    coldCallerCount: 1,
   }, heroCards);
   assert.ok(smallResponses.call.length > largeResponses.call.length);
   assert.ok((smallResponses.fold?.length ?? 0) < (largeResponses.fold?.length ?? 0));
 });
 
-test("3-bet practice realizes an early re-raise and keeps both BTN 4-bet sizes multiway", () => {
+test("3-bet practice realizes an early re-raise and responds by prior role to BTN 4-bets", () => {
   const heroCards = parseCards("7s 6s", { exact: 2 });
   const scenario = createSixHandedPracticeScenario({
     heroCards,
@@ -144,17 +154,29 @@ test("3-bet practice realizes an early re-raise and keeps both BTN 4-bet sizes m
     position: opener.position,
     threeBettorPosition: threeBettor.position,
     threeBetBb: scenario.threeBetAmount / 3,
+    priorAction: "opened",
+    openerPosition: opener.position,
   }), "call");
 
   for (const target of [scenario.smallTarget, scenario.largeTarget]) {
-    for (const opponent of [opener, threeBettor]) {
-      assert.equal(fishActionForCombo(opponent.combo, {
-        type: "preflop-vs-fourbet",
-        position: opponent.position,
-        fourBettorPosition: "BTN",
-        fourBetBb: target / 3,
-      }), "call");
-    }
+    assert.equal(fishActionForCombo(threeBettor.combo, {
+      type: "preflop-vs-fourbet",
+      position: threeBettor.position,
+      fourBettorPosition: "BTN",
+      fourBetBb: target / 3,
+      priorAction: "threebet",
+      openerPosition: opener.position,
+      threeBettorPosition: threeBettor.position,
+    }), "call");
+    assert.notEqual(fishActionForCombo(opener.combo, {
+      type: "preflop-vs-fourbet",
+      position: opener.position,
+      fourBettorPosition: "BTN",
+      fourBetBb: target / 3,
+      priorAction: "opened",
+      openerPosition: opener.position,
+      threeBettorPosition: threeBettor.position,
+    }), "raise");
   }
 });
 
@@ -171,15 +193,33 @@ test("early-seat model exposes every legal fold, limp, raise, call, and re-raise
       actions: ["fold", "limp", "raise"],
     },
     {
-      context: { type: "sixmax-vs-open", position: "CO", openerPosition: "UTG", openBb: 4 },
+      context: {
+        type: "sixmax-vs-open",
+        position: "CO",
+        openerPosition: "UTG",
+        openBb: 4,
+        coldCallerCount: 1,
+      },
       actions: ["fold", "call", "raise"],
     },
     {
-      context: { type: "preflop-vs-threebet", position: "UTG", threeBettorPosition: "BTN", threeBetBb: 16 },
+      context: {
+        type: "preflop-vs-threebet",
+        position: "UTG",
+        threeBettorPosition: "BTN",
+        threeBetBb: 16,
+        priorAction: "opened",
+      },
       actions: ["fold", "call", "raise"],
     },
     {
-      context: { type: "preflop-vs-fourbet", position: "CO", fourBettorPosition: "BTN", fourBetBb: 35 },
+      context: {
+        type: "preflop-vs-fourbet",
+        position: "CO",
+        fourBettorPosition: "BTN",
+        fourBetBb: 35,
+        priorAction: "threebet",
+      },
       actions: ["fold", "call", "raise"],
     },
   ];
