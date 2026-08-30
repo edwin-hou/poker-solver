@@ -155,7 +155,7 @@ function randomTrainerHeroCards(scenarioKind) {
         preflopSpot: "vs-3bet",
         heroPosition: "BTN",
         villainPosition: "CO",
-        stack: 100,
+        stack: 150,
         openSize: 4,
       }, classLabel)
       : scenarioKind === "raised"
@@ -163,14 +163,14 @@ function randomTrainerHeroCards(scenarioKind) {
         preflopSpot: "vs-open",
         heroPosition: "BTN",
         villainPosition: "HJ",
-        stack: 100,
+        stack: 150,
         openSize: 4,
       }, classLabel)
       : preflopLookupStrategyForClass({
         preflopSpot: "rfi",
         heroPosition: "BTN",
         villainPosition: "BB",
-        stack: 100,
+        stack: 150,
         openSize: 10 / 3,
       }, classLabel);
     const continues = scenarioKind === "raised" || scenarioKind === "threebet"
@@ -375,15 +375,16 @@ function buildPreflopOpenDecision() {
     preflopSpot: "rfi",
     heroPosition: "BTN",
     villainPosition: "BB",
-    stack: 100,
+    stack: 150,
     openSize: 10 / 3,
   }, classLabel);
   const [foldFrequency, openFrequency] = lookup.strategy;
   const recommended = openFrequency > foldFrequency ? "isoSmall" : "fold";
-  const acceptable = openFrequency >= 0.98 ? ["isoLarge"] : [];
+  const strongIsolation = ["AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"].includes(classLabel);
+  const acceptable = recommended === "isoSmall" && strongIsolation ? ["isoLarge"] : [];
   const reason = recommended === "fold"
-    ? `${classLabel} is a fold in the repository's six-max BTN baseline (${Math.round(foldFrequency * 100)}% fold). The limpers do not make an out-of-range hand an automatic isolation raise.`
-    : `${classLabel} opens in the repository's six-max BTN baseline (${Math.round(openFrequency * 100)}% raise). Isolating to ${formatMoney(state.smallTarget)} is the baseline-guided default; ${formatMoney(state.largeTarget)} is the larger live exploit option.`;
+    ? `${classLabel} is a fold in the repository's 150bb six-max BTN baseline (${Math.round(foldFrequency * 100)}% fold). Wide limpers do not turn a structurally weak hand into a profitable isolation raise.`
+    : `${classLabel} opens in the repository's 150bb six-max BTN baseline (${Math.round(openFrequency * 100)}% raise). Isolating to ${formatMoney(state.smallTarget)} applies the baseline against the fish's wider, weaker limping range.`;
   return {
     type: "preflop-isolate",
     title: `You look down at ${classLabel} on the BTN. Isolate the limpers?`,
@@ -391,16 +392,29 @@ function buildPreflopOpenDecision() {
     recommended,
     acceptable,
     reason,
+    choiceReasons: {
+      fold: recommended === "fold"
+        ? `Correct. ${classLabel} is outside the 150bb BTN opening baseline, and position alone does not overcome its poor domination and realization against several sticky players.`
+        : `This is too tight. ${classLabel} clears the 150bb BTN opening baseline, and the limpers arrive with wide, capped ranges that let you isolate for value or initiative.`,
+      isoSmall: recommended === "isoSmall"
+        ? `Correct. ${formatMoney(state.smallTarget)} punishes the wide limps while risking less than the larger size and preserving room to maneuver at 150bb.`
+        : `This is the main error: it converts a baseline fold into a multiway bluff against players modeled to call too often. Weak hands such as 94o remain folds.`,
+      isoLarge: recommended === "fold"
+        ? `This compounds the mistake of entering an out-of-range hand by risking even more against inelastic callers.`
+        : strongIsolation
+          ? `Defensible with this stronger opening hand. The larger size extracts more from loose calls, but it narrows the fish's continuing ranges and lowers the postflop stack-to-pot ratio.`
+          : `This is unnecessarily large for the marginal part of your opening range. It gets called by stronger hands, folds out hands you dominate, and builds a larger multiway pot with fragile equity.`,
+    },
     basis: {
-      title: "Six-max preflop lookup baseline",
-      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The isolation sizing is a transparent live multiway exploit adjustment, not a solved limped-pot equilibrium.`,
+      title: "150bb six-max baseline + fish-range estimate",
+      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The opponent limps come only from the online fish model; isolation sizing is a disclosed multiway best-response estimate, not a solved limped-pot equilibrium.`,
     },
     smallTarget: state.smallTarget,
     largeTarget: state.largeTarget,
     options: [
       { id: "fold", label: "Fold", detail: "Do not enter the limped pot" },
       { id: "isoSmall", label: `Raise to ${formatMoney(state.smallTarget)}`, detail: "Baseline isolation size" },
-      { id: "isoLarge", label: `Raise to ${formatMoney(state.largeTarget)}`, detail: "Larger live exploit size" },
+      { id: "isoLarge", label: `Raise to ${formatMoney(state.largeTarget)}`, detail: "Larger exploit size" },
     ],
   };
 }
@@ -412,20 +426,19 @@ function buildFacingOpenDecision() {
     preflopSpot: "vs-open",
     heroPosition: "BTN",
     villainPosition: opener.position,
-    stack: 100,
+    stack: 150,
     openSize: state.openAmount / 3,
   }, classLabel);
   const [foldFrequency, callFrequency, threeBetFrequency] = lookup.strategy;
-  const frequencies = { fold: foldFrequency, callOpen: callFrequency, squeezeSmall: threeBetFrequency };
-  const recommended = Object.entries(frequencies)
-    .sort((left, right) => right[1] - left[1])[0][0];
-  const acceptable = [];
-  if (threeBetFrequency >= 0.5) acceptable.push("squeezeLarge");
+  const baselineContinues = callFrequency + threeBetFrequency > foldFrequency;
+  const valueSqueeze = ["AA", "KK", "QQ", "AKs", "AKo"].includes(classLabel);
+  const recommended = valueSqueeze ? "squeezeSmall" : baselineContinues ? "callOpen" : "fold";
+  const acceptable = valueSqueeze && ["AA", "KK"].includes(classLabel) ? ["squeezeLarge"] : [];
   const reason = recommended === "fold"
-    ? `${classLabel} folds most often in the ${lookup.nodeLabel} baseline (${Math.round(foldFrequency * 100)}% fold). The extra caller improves the price but also strengthens the field, so this estimate does not force a marginal hand into a squeeze.`
+    ? `${classLabel} folds most often in the 150bb ${lookup.nodeLabel} baseline (${Math.round(foldFrequency * 100)}% fold). The extra caller improves the price but does not rescue a hand with poor domination or realization.`
     : recommended === "callOpen"
-      ? `${classLabel} continues mainly by calling in the ${lookup.nodeLabel} baseline (${Math.round(callFrequency * 100)}% call). The multiway adjustment keeps the call while treating a squeeze as the more selective action.`
-      : `${classLabel} is primarily a 3-bet in the ${lookup.nodeLabel} baseline (${Math.round(threeBetFrequency * 100)}% 3-bet). With dead money from the caller, ${formatMoney(state.smallTarget)} is the baseline-guided squeeze.`;
+      ? `${classLabel} continues in the 150bb ${lookup.nodeLabel} baseline. Against this fish's obvious-value opening range, the exploit estimate moves non-premium continues into the call bucket rather than inventing a light squeeze.`
+      : `${classLabel} is strong enough to squeeze for value against the fish opener and wide cold caller. ${formatMoney(state.smallTarget)} keeps worse hands in while charging both ranges.`;
   return {
     type: "preflop-facing-open",
     title: `You look down at ${classLabel} on the BTN. What is your plan?`,
@@ -433,9 +446,27 @@ function buildFacingOpenDecision() {
     recommended,
     acceptable,
     reason,
+    choiceReasons: {
+      fold: recommended === "fold"
+        ? `Correct. ${classLabel} does not clear the 150bb positional continuation baseline, and a cold caller plus live blinds make its equity harder—not easier—to realize.`
+        : `This overfolds. ${classLabel} has enough 150bb positional value to continue against the modeled opener and the caller's much wider range.`,
+      callOpen: recommended === "callOpen"
+        ? `Correct. Calling keeps the fish's dominated and speculative hands in, uses your position, and avoids isolating yourself against the opener's premium-heavy continuing range.`
+        : recommended === "fold"
+          ? `This is too loose. The price looks attractive, but ${classLabel} is dominated too often and must realize equity through several players.`
+          : `This is playable but too passive for a premium. You miss value from the wide cold caller and let both blinds enter cheaply.`,
+      squeezeSmall: recommended === "squeezeSmall"
+        ? `Correct. This is a value squeeze—not a balance play. ${classLabel} can be called by enough worse hands, and ${formatMoney(state.smallTarget)} collects dead money without forcing the fish into only its strongest continues.`
+        : recommended === "fold"
+          ? `This is an unsupported bluff. The modeled fish calls reraises too often with pairs and broadways, so a hand that cannot even profitably call should not squeeze.`
+          : `This is too aggressive against an opener whose raises are already value-heavy. Calling preserves weaker hands; squeezing makes the continuing range stronger.`,
+      squeezeLarge: recommended === "squeezeSmall" && acceptable.includes("squeezeLarge")
+        ? `Defensible with the very top of range, especially if the pool ignores sizing. It wins more preflop but also folds out dominated hands that the smaller squeeze keeps.`
+        : `This size needs a much more polarized, value-dense hand than ${classLabel}. Against sticky fish it risks more while getting action from the strongest part of their range.`,
+    },
     basis: {
-      title: "Six-max positional baseline + multiway estimate",
-      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(threeBetFrequency * 100)}% 3-bet. That heads-up lookup anchors the choice; the cold caller and squeeze sizes are transparent estimates, not an exact custom multiway solve.`,
+      title: "150bb solver baseline + modeled-range best response",
+      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(threeBetFrequency * 100)}% 3-bet. That six-max lookup anchors hand viability; the recommendation then tightens light aggression against the fish's value-heavy open and preserves calls versus its wider weak ranges. This is a transparent multiway estimate, not an exact custom solve.`,
     },
     openerId: state.openerId,
     openAmount: state.openAmount,
@@ -445,7 +476,7 @@ function buildFacingOpenDecision() {
       { id: "fold", label: "Fold", detail: "Leave the raised pot" },
       { id: "callOpen", label: `Call ${formatMoney(state.openAmount)}`, detail: "Take the price in position" },
       { id: "squeezeSmall", label: `Squeeze to ${formatMoney(state.smallTarget)}`, detail: "Baseline squeeze size" },
-      { id: "squeezeLarge", label: `Squeeze to ${formatMoney(state.largeTarget)}`, detail: "Higher-pressure live size" },
+      { id: "squeezeLarge", label: `Squeeze to ${formatMoney(state.largeTarget)}`, detail: "Higher-pressure exploit size" },
     ],
   };
 }
@@ -458,19 +489,19 @@ function buildFacingThreeBetDecision() {
     preflopSpot: "vs-3bet",
     heroPosition: "BTN",
     villainPosition: threeBettor.position,
-    stack: 100,
+    stack: 150,
     openSize: state.openAmount / 3,
   }, classLabel);
   const [foldFrequency, callFrequency, fourBetFrequency] = lookup.strategy;
-  const frequencies = { fold: foldFrequency, callThreeBet: callFrequency, fourBetSmall: fourBetFrequency };
-  const recommended = Object.entries(frequencies)
-    .sort((left, right) => right[1] - left[1])[0][0];
-  const acceptable = fourBetFrequency >= 0.5 ? ["fourBetLarge"] : [];
+  const premiumFourBet = ["AA", "KK"].includes(classLabel);
+  const callsPremiumThreeBet = ["QQ", "JJ", "TT", "AKs", "AKo", "AQs"].includes(classLabel);
+  const recommended = premiumFourBet ? "fourBetSmall" : callsPremiumThreeBet ? "callThreeBet" : "fold";
+  const acceptable = premiumFourBet ? ["fourBetLarge"] : [];
   const reason = recommended === "fold"
-    ? `${classLabel} folds most often in the ${lookup.nodeLabel} baseline (${Math.round(foldFrequency * 100)}% fold). An opener still behind you makes an unsupported cold call even less attractive.`
+    ? `${classLabel} folds against this premium-only fish 3-bet range. Even if the 150bb baseline sometimes continues, a passive opponent's reraise plus the original opener behind removes the light 4-bets and marginal cold calls.`
     : recommended === "callThreeBet"
-      ? `${classLabel} continues mainly by calling in the ${lookup.nodeLabel} baseline (${Math.round(callFrequency * 100)}% call). The cold-call line is kept as an estimate because the original opener still has a decision.`
-      : `${classLabel} is primarily a 4-bet in the ${lookup.nodeLabel} baseline (${Math.round(fourBetFrequency * 100)}% 4-bet). ${formatMoney(state.smallTarget)} is the baseline-guided size, with ${formatMoney(state.largeTarget)} available as a higher-pressure branch.`;
+      ? `${classLabel} has enough equity and 150bb implied value to continue, but not enough value to 4-bet into a fish range modeled as QQ+/AK. TT and 99 are explicitly never placed in the fish's own 4-bet range.`
+      : `${classLabel} is at the top of range and can 4-bet for value. ${formatMoney(state.smallTarget)} keeps QQ/AK calls available while avoiding a needlessly large pot against AA/KK.`;
   return {
     type: "preflop-facing-threebet",
     title: `You look down at ${classLabel} on the BTN. Face the 3-bet?`,
@@ -478,9 +509,27 @@ function buildFacingThreeBetDecision() {
     recommended,
     acceptable,
     reason,
+    choiceReasons: {
+      fold: recommended === "fold"
+        ? `Correct. The fish's 3-bet is not a balanced solver range: it is modeled as QQ+/AK, with the original raiser still live. ${classLabel} lacks the equity and implied value to continue profitably.`
+        : `This is too tight at 150bb. ${classLabel} retains enough equity or implied value against QQ+/AK to continue in position.`,
+      callThreeBet: recommended === "callThreeBet"
+        ? `Correct. Calling keeps the fish's full premium range intact, realizes the benefit of 150bb depth, and avoids turning ${classLabel} into an overplayed 4-bet.`
+        : recommended === "fold"
+          ? `This is a loose cold call into two strong ranges. The stack is deep, but the price is still large and domination makes the implied odds work against you.`
+          : `This leaves value on the table with the very top of range. The fish can still call a 4-bet with QQ/AK and continue with AA/KK.`,
+      fourBetSmall: recommended === "fourBetSmall"
+        ? `Correct. This is a pure value 4-bet against a premium-heavy fish range. The smaller size keeps worse premiums in and leaves postflop room at 150bb.`
+        : callsPremiumThreeBet
+          ? `This is the key overplay. A solver may 4-bet this hand against a balanced 3-bettor, but this fish is not balanced: it began with QQ+/AK, so ${classLabel} should usually call instead.`
+          : `This is a bluff into a range with almost no light 3-bets and very few folds. The modeled opponent is exactly the wrong target for it.`,
+      fourBetLarge: recommended === "fourBetSmall"
+        ? `Defensible with AA or KK, but larger than necessary. It folds out more QQ/AK and concentrates action in the opponent's AA/KK bucket.`
+        : `This magnifies the 4-bet error. The fish's range is already premium-heavy, so extra pressure does not create the folds a balanced bluff would need.`,
+    },
     basis: {
-      title: "Six-max facing-3-bet baseline + multiway estimate",
-      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet. The repository lookup anchors the hand choice; cold-calling with the opener behind and the exact 4-bet sizes are disclosed estimates.`,
+      title: "150bb solver baseline corrected for a fish 3-bet range",
+      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet against the lookup's balanced baseline. The recommendation is tightened against this opponent's deterministic QQ+/AK 3-bet range. That correction and the multiway cold-call node are disclosed best-response estimates, not an exact custom solve.`,
     },
     openerId: state.openerId,
     threeBettorId: state.threeBettorId,
@@ -491,7 +540,7 @@ function buildFacingThreeBetDecision() {
       { id: "fold", label: "Fold", detail: "Respect the early-position strength" },
       { id: "callThreeBet", label: `Call ${formatMoney(state.threeBetAmount)}`, detail: "Cold-call in position" },
       { id: "fourBetSmall", label: `4-bet to ${formatMoney(state.smallTarget)}`, detail: "Baseline pressure size" },
-      { id: "fourBetLarge", label: `4-bet to ${formatMoney(state.largeTarget)}`, detail: "Larger live pressure size" },
+      { id: "fourBetLarge", label: `4-bet to ${formatMoney(state.largeTarget)}`, detail: "Larger exploit pressure size" },
     ],
   };
 }
@@ -534,6 +583,23 @@ function buildAfterCheckDecision() {
     acceptable,
     reason,
     equity,
+    choiceReasons: {
+      check: recommended === "check"
+        ? `Correct. With about ${percentEquity}% equity, checking realizes your share without value-owning yourself into several call-heavy ranges.`
+        : acceptable.includes("check")
+          ? `Defensible for pot control, but it misses thin value from pairs and draws that this profile calls too often.`
+          : `This is too passive with about ${percentEquity}% equity. Sticky opponents supply enough worse calls that checking leaves substantial value behind.`,
+      bet33: recommended === "bet33"
+        ? `Correct. One-third pot extracts thin value or buys cheap folds while keeping the cost controlled when several fish ranges can continue.`
+        : acceptable.includes("bet33")
+          ? `Reasonable, but your equity is strong enough to charge the modeled pairs and draws more heavily.`
+          : `This bet lacks a clear job. With about ${percentEquity}% equity, the fish folds much of the air you beat and continues with a range that has you in worse shape.`,
+      bet75: recommended === "bet75"
+        ? `Correct. Your roughly ${percentEquity}% equity is strong enough to target the fish's inelastic pair and draw calls for a larger amount.`
+        : recommended === "bet33"
+          ? `This is too large for a thin-value or pressure hand. It folds out more worse hands and gets continued against by a stronger range.`
+          : `This overinvests into several sticky ranges without enough equity. Large bets work best here as value, not as automatic pressure.`,
+    },
     basis: {
       title: "Exact range equity + exploit rule",
       copy: `Equity is sampled against ${activeOpponents().length} independent exact binary opponent ranges. Bet/check thresholds are transparent multiway loose-passive exploit heuristics, not a solved six-player equilibrium.`,
@@ -565,6 +631,14 @@ function buildVsRaiseDecision(amountToCall, raiserId) {
     equity,
     amountToCall,
     raiserId,
+    choiceReasons: {
+      fold: recommended === "fold"
+        ? `Correct. The modeled fish has no bluff-raise branch here, and ${Math.round(equity * 100)}% equity does not clear the ${Math.round(potOdds * 100)}% price plus the value-heavy safety margin.`
+        : `This is too tight. Even after respecting the fish's strong raise, your ${Math.round(equity * 100)}% estimate still pays for the ${Math.round(potOdds * 100)}% call with the required margin.`,
+      call: recommended === "call"
+        ? `Correct. This is not a curiosity call: the sampled range equity actually clears the exact price even after adding extra respect for a passive player's raise.`
+        : `This is a payoff mistake. The raise range contains no modeled bluffs, so pot odds alone are not enough when your ${Math.round(equity * 100)}% equity misses the adjusted threshold.`,
+    },
     basis: {
       title: "Exact pot odds + value-heavy raise model",
       copy: "The price is exact and equity is sampled from every active seat's exact binary range. The extra fold margin reflects the modeled fish's no-bluff raise rule; it is not presented as a solved multiway equilibrium.",
@@ -580,24 +654,25 @@ function feedbackFor(decision, choiceId) {
   const best = choiceId === decision.recommended;
   const reasonable = !best && decision.acceptable.includes(choiceId);
   const recommendedLabel = decision.options.find((option) => option.id === decision.recommended)?.label ?? decision.recommended;
+  const choiceReason = decision.choiceReasons?.[choiceId] ?? decision.reason;
   if (best) {
     return {
       grade: "A",
-      title: "Best exploit in this model",
-      copy: decision.reason,
+      title: "Why this is best",
+      copy: choiceReason,
     };
   }
   if (reasonable) {
     return {
       grade: "B",
-      title: "Reasonable, but not my first choice",
-      copy: `${decision.reason} I slightly prefer ${recommendedLabel}, but your line is defensible against these modeled opponents.`,
+      title: "Why this works—but is second best",
+      copy: `${choiceReason} Preferred: ${recommendedLabel}. ${decision.reason}`,
     };
   }
   return {
     grade: "C",
-    title: `I prefer ${recommendedLabel}`,
-    copy: decision.reason,
+    title: "What is wrong with this choice",
+    copy: `${choiceReason} Preferred: ${recommendedLabel}. ${decision.reason}`,
   };
 }
 
@@ -1383,7 +1458,7 @@ function renderDecision(moment) {
   } else if (moment.kind === "complete") {
     elements.decisionNote.textContent = "Use ← or the branch trail to revisit any earlier fork. Saved alternatives keep their own board, pot, action thread, and every opponent's exact range.";
   } else {
-    elements.decisionNote.textContent = "Choose any action for feedback, then explore it. You can return and select every other action or sizing; completed branches stay saved.";
+    elements.decisionNote.textContent = "Choose any action for its specific explanation, then explore it. You can return and select every other action or sizing; completed branches stay saved.";
   }
 }
 
@@ -1412,7 +1487,7 @@ function render() {
   const moment = path[historyIndex];
   if (!moment) return;
   elements.streetPill.textContent = streetLabel(moment.street);
-  elements.spotLabel.textContent = `${moment.spotLabel} · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 100bb`;
+  elements.spotLabel.textContent = `${moment.spotLabel} · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 150bb`;
   elements.potLabel.textContent = formatMoney(moment.pot);
   elements.heroStack.textContent = formatMoney(moment.heroStack);
   const selectedOption = moment.kind === "decision" && moment.answer

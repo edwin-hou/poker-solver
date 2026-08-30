@@ -11,21 +11,22 @@ Everything runs locally in the browser. Cards, ranges, strategies, and trainer h
 
 ## Beat Fish trainer
 
-`site/trainer.html` is an original six-handed exploit-training surface built around transparent basic loose-passive live $1/$2/$3 player archetypes.
+`site/trainer.html` is an original 150bb six-handed exploit-training surface built around a transparent basic loose-passive online player archetype.
 
 - Hands begin preflop and can continue through river.
 - Five opponents occupy UTG, HJ, CO, SB, and BB around a BTN hero. Early seats use position- and action-aware fold, limp, open-raise, call, and 3-bet ranges. Curated limped pots, open-plus-caller pots, and early-position open/3-bet pots make the BTN solve isolation, overcall, squeeze, cold-call, and 4-bet decisions instead of repeatedly opening into five folds.
 - Every opponent has one fixed hidden exact combo and a separate independent binary marginal range for the entire hand. Each exact combo is either still plausible for that seat or removed.
-- Opponents use deterministic novice rules rather than mixed strategies: wide limps and calls, passive medium-strength play, loose draw chasing, and value-heavy raises.
+- Opponents use deterministic novice rules rather than mixed strategies or solver charts: high participation with much less raising, wide limps and calls, passive medium-strength play, loose draw chasing, and premium-heavy reraises. Their 4-bet bucket is AA/KK only; TT and 99 never 4-bet.
 - Every observed opponent action filters that seat's existing range; board cards remove impossible blockers from every active range.
 - Every answered hero action remains available. Exploring another action creates a persistent sibling branch instead of deleting the line already studied.
 - Five fixed hidden opponent hands and one five-card runout are shared across sibling branches, so sizing comparisons are true counterfactuals.
 - **Reveal Range** lets you select a seat, displays its literal surviving range for the selected branch, partitions and color-codes it by exact fold/call/raise action facing each hero sizing, and lists literal suit combos on demand.
 - Back/forward controls and the branch trail rewind the board, pot, action history, and all five exact range states along the active branch.
 - A separate heads-up-only **Estimate a hand history** mode accepts hero cards, player labels, stakes, and a compact action transcript, then threads one blocker-aware binary opponent range through every recognized action.
-- Preflop coaching reads the repository's approximate six-max positional lookup table at matching open, facing-open, and facing-3-bet nodes (so hands such as BTN 94o fold). Limping, cold-caller, squeeze-sizing, and postflop multiway adjustments are clearly labeled estimates. Postflop coaching samples equity from every active exact range and applies disclosed population-exploit thresholds; it is not presented as a solved multiway equilibrium and never reads hidden cards.
+- Every hero option has its own explanation of why it is best, defensible, or mistaken; choosing an alternative replaces the explanation without deleting any saved branch.
+- Hero preflop coaching reads the repository's approximate 150bb six-max positional lookup table at matching open, facing-open, and facing-3-bet nodes (so hands such as BTN 94o fold), then tightens aggression against the fish's actual call-heavy, premium-reraise range. Limping, cold-caller, squeeze-sizing, and postflop multiway adjustments are clearly labeled best-response estimates. Postflop coaching samples equity from every active exact range and applies disclosed population-exploit thresholds; it is not presented as a solved multiway equilibrium and never reads hidden cards.
 
-The modeled opponent understands the rules and obvious hand strength but does not construct balanced/GTO ranges. This is a study archetype rather than solver output or a claim about every low-stakes player.
+The modeled opponent understands the rules and obvious hand strength but does not construct balanced/GTO ranges. This is an auditable online loose-passive study archetype rather than solver output, a population database, or a claim about every weak player. Only Hero's recommendations consult the lookup model.
 
 ## Preflop modes
 

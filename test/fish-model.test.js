@@ -43,6 +43,34 @@ test("preflop fish policy is deterministic with wide calls and rare premium 3-be
   assert.ok(called.every((entry) => fishActionForCombo(entry, context) === "call"));
 });
 
+test("online fish reraises are premium-heavy and never 4-bet TT or 99", () => {
+  const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
+  const aa = firstClass(prior, "AA");
+  const kk = firstClass(prior, "KK");
+  const qq = firstClass(prior, "QQ");
+  const tt = firstClass(prior, "TT");
+  const nines = firstClass(prior, "99");
+  assert.ok(aa && kk && qq && tt && nines);
+
+  const facingSmallThreeBet = { type: "preflop-vs-threebet", threeBetBb: 16 };
+  assert.equal(fishActionForCombo(aa, facingSmallThreeBet), "raise");
+  assert.equal(fishActionForCombo(kk, facingSmallThreeBet), "raise");
+  assert.equal(fishActionForCombo(qq, facingSmallThreeBet), "call");
+  assert.equal(fishActionForCombo(tt, facingSmallThreeBet), "call");
+  assert.equal(fishActionForCombo(nines, facingSmallThreeBet), "call");
+
+  const facingLargeThreeBet = { type: "preflop-vs-threebet", threeBetBb: 20 };
+  assert.notEqual(fishActionForCombo(tt, facingLargeThreeBet), "raise");
+  assert.notEqual(fishActionForCombo(nines, facingLargeThreeBet), "raise");
+
+  const facingFourBet = { type: "preflop-vs-fourbet", fourBetBb: 35 };
+  assert.equal(fishActionForCombo(aa, facingFourBet), "raise");
+  assert.equal(fishActionForCombo(kk, facingFourBet), "raise");
+  assert.equal(fishActionForCombo(qq, facingFourBet), "call");
+  assert.equal(fishActionForCombo(tt, facingFourBet), "fold");
+  assert.equal(fishActionForCombo(nines, facingFourBet), "fold");
+});
+
 test("one binary range survives a full preflop-to-river action thread", () => {
   const heroCards = [parseCard("As"), parseCard("Kd")];
   let range = createFishRange({ heroCards });

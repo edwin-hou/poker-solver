@@ -89,8 +89,8 @@ function limpedPlan({ bigBlind, random }) {
       status: action === "limp" ? `Limped ${bigBlind}` : "Folded preflop",
       text: action === "limp" ? `limps ${bigBlind}` : "folds",
       provenance: action === "limp"
-        ? "The positional six-max lookup supplies the entering range; this loose-passive model converts its marginal opens into estimated limps."
-        : "Keep only combos outside this seat's GTO-estimated entering range.",
+        ? "Keep the wide, call-first hands this online loose-passive profile enters without raising."
+        : "Remove the obvious premiums and playable hands this online loose-passive profile would enter.",
     });
   }
 
@@ -140,7 +140,7 @@ function raisedPlan({ bigBlind, random }) {
         committed: 0,
         status: "Folded preflop",
         text: "folds",
-        provenance: "Keep only combos outside this seat's GTO-estimated open-first-in range.",
+        provenance: "Keep only hands outside this online loose-passive seat's position-aware entering range.",
       });
       continue;
     }
@@ -151,7 +151,7 @@ function raisedPlan({ bigBlind, random }) {
         committed: openAmount,
         status: `Raised to ${openAmount}`,
         text: `raises to ${openAmount}`,
-        provenance: "Keep only combos assigned to raise by this seat's positional GTO-estimated entering range.",
+        provenance: "Keep the obvious value and broadway hands this online loose-passive seat raises instead of limping.",
       });
       continue;
     }
@@ -162,7 +162,7 @@ function raisedPlan({ bigBlind, random }) {
       committed: action === "call" ? openAmount : 0,
       status: action === "call" ? `Called ${openAmount}` : "Folded preflop",
       text: action === "call" ? `calls ${openAmount}` : "folds",
-      provenance: `Use the repository's GTO-estimated ${seat.position}-versus-${opener.position} lookup for fold, call, and 3-bet boundaries.`,
+      provenance: `Apply the ${seat.position} online loose-passive response: premium-only 3-bets, calls that are too wide, and folds below them.`,
     });
   }
 
@@ -216,7 +216,7 @@ function threeBetPlan({ bigBlind, random }) {
         committed: openAmount,
         status: `Raised to ${openAmount}`,
         text: `raises to ${openAmount}`,
-        provenance: "Keep only combos assigned to raise by this seat's positional GTO-estimated entering range.",
+        provenance: "Keep the obvious value and broadway hands this online loose-passive seat raises instead of limping.",
       });
       continue;
     }
@@ -227,7 +227,7 @@ function threeBetPlan({ bigBlind, random }) {
         committed: threeBetAmount,
         status: `3-bet to ${threeBetAmount}`,
         text: `3-bets to ${threeBetAmount}`,
-        provenance: `Use the repository's GTO-estimated ${seat.position}-versus-${opener.position} aggressive continuation range.`,
+        provenance: `Keep only the obvious premium hands this passive ${seat.position} profile reraises; there is no balanced light 3-bet range.`,
       });
       continue;
     }
@@ -241,8 +241,8 @@ function threeBetPlan({ bigBlind, random }) {
       status: "Folded preflop",
       text: "folds",
       provenance: facingThreeBet
-        ? "Keep only hands outside this seat's estimated continuation range facing the 3-bet."
-        : `Use the repository's GTO-estimated ${seat.position}-versus-${opener.position} fold boundary.`,
+        ? "Keep only hands this passive seat releases when an already-strong range reraises."
+        : `Keep hands below this online loose-passive ${seat.position} seat's wide call and premium-only 3-bet ranges.`,
     });
   }
 
@@ -286,7 +286,7 @@ function threeBetPlan({ bigBlind, random }) {
 export function createSixHandedPracticeScenario({
   heroCards,
   bigBlind = 3,
-  stack = 300,
+  stack = 450,
   random = Math.random,
   scenarioKind,
 } = {}) {
