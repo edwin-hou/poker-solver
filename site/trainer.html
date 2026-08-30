@@ -48,7 +48,13 @@
         </div>
       </section>
 
-      <section class="trainer-layout" aria-label="Beat Fish hand trainer">
+      <div class="trainer-mode-switch" role="tablist" aria-label="Beat Fish mode">
+        <button type="button" id="mode-play" class="mode-button selected" role="tab" aria-selected="true">Play curated hands</button>
+        <button type="button" id="mode-analyze" class="mode-button" role="tab" aria-selected="false">Estimate a hand history</button>
+      </div>
+
+      <div id="play-mode">
+        <section class="trainer-layout" aria-label="Beat Fish hand trainer">
         <div class="table-panel">
           <div class="table-head">
             <div>
@@ -102,6 +108,10 @@
             <div class="section-kicker" id="question-kicker">Your decision</div>
             <h2 id="question-title">What is your preflop plan?</h2>
             <p id="question-copy">Choose the action you would actually take before revealing the fish range.</p>
+            <div class="decision-basis" id="decision-basis">
+              <strong id="decision-basis-title">Recommendation basis</strong>
+              <p id="decision-basis-copy"></p>
+            </div>
             <div class="answer-options" id="answer-options"></div>
           </div>
 
@@ -121,9 +131,9 @@
             Feedback is exploit-oriented and uses only the visible action history plus the surviving modeled range—not the fish's hidden cards.
           </p>
         </aside>
-      </section>
+        </section>
 
-      <section class="range-panel" id="range-panel" hidden>
+        <section class="range-panel" id="range-panel" hidden>
         <div class="range-panel-head">
           <div>
             <div class="section-kicker">Range reveal</div>
@@ -147,7 +157,7 @@
           <div>
             <div class="range-grid" id="range-grid" aria-label="Fish 13 by 13 range matrix"></div>
             <div class="range-color-legend" id="range-color-legend" aria-label="Range color legend"></div>
-            <p class="range-legend">Colors describe the surviving hand type, not probability. Each cell shows how many exact suit combos remain, such as 4/4 or 3/12. Click a cell to list the literal suit combinations.</p>
+            <p class="range-legend">Colors show the modeled fish action—fold, call, or raise—not hand strength or probability. Split-colored cells contain exact suit combos assigned to different actions. Click a cell to list the literal combinations.</p>
             <div class="range-combo-detail" id="range-combo-detail">
               <div class="section-kicker">Exact combos</div>
               <strong id="range-combo-detail-title">Select a hand class</strong>
@@ -167,6 +177,78 @@
             <div>
               <div class="section-kicker">Why this range?</div>
               <ol class="range-thread" id="range-thread"></ol>
+            </div>
+          </div>
+        </div>
+        </section>
+      </div>
+
+      <section class="analyzer-panel" id="analyze-mode" hidden aria-label="Fish hand-history range estimator">
+        <div class="analyzer-head">
+          <div>
+            <div class="section-kicker">Your own hand</div>
+            <h2>Estimate the fish range from a hand history</h2>
+            <p>Paste a compact hand history. The estimator starts with every unblocked exact combo, then keeps only the combos that take each recorded fish action. It never creates mixed frequencies.</p>
+          </div>
+          <div class="model-disclosure">
+            <strong>What this is</strong>
+            <span>A deterministic loose-passive range estimate using the same binary rules as the trainer.</span>
+            <small>It is not a site-parser, player-specific read, or multiway GTO solve. Unrecognized lines are reported instead of silently guessed.</small>
+          </div>
+        </div>
+
+        <div class="analyzer-layout">
+          <form class="history-form" onsubmit="return false">
+            <div class="history-fields">
+              <label>Your cards<input id="history-hero-cards" value="As Kd" autocomplete="off" /></label>
+              <label>Your name<input id="history-hero-name" value="Hero" autocomplete="off" /></label>
+              <label>Fish name<input id="history-fish-name" value="Fish" autocomplete="off" /></label>
+              <label>Big blind ($)<input id="history-big-blind" type="number" min="0.01" step="0.01" value="3" /></label>
+              <label>Starting pot ($)<input id="history-starting-pot" type="number" min="0" step="0.01" value="6" /></label>
+            </div>
+            <label class="history-text-label" for="history-input">Hand history</label>
+            <textarea id="history-input" rows="14" spellcheck="false">Hero raises to $10
+Fish calls $10
+Flop: Qs Ts 7h
+Fish checks
+Hero bets $8
+Fish calls $8
+Turn: 2c
+Fish checks
+Hero bets $22
+Fish calls $22
+River: 3d
+Fish checks</textarea>
+            <p class="history-help">Supported action names include Hero/You and Fish/Villain/Opponent, or the names entered above. Include bet and raise-to amounts.</p>
+            <button type="button" class="button button-primary" id="analyze-history">Estimate range</button>
+            <p class="history-error" id="history-error" hidden role="alert"></p>
+          </form>
+
+          <div class="history-result" id="history-result" hidden>
+            <div class="history-summary">
+              <div><small>Street</small><strong id="history-street">—</strong></div>
+              <div><small>Board</small><strong id="history-board">—</strong></div>
+              <div><small>Exact combos</small><strong id="history-combos">—</strong></div>
+              <div><small>Hand classes</small><strong id="history-classes">—</strong></div>
+            </div>
+            <div class="range-grid" id="history-range-grid" aria-label="Estimated fish 13 by 13 range matrix"></div>
+            <div class="range-color-legend" id="history-range-legend" aria-label="Hand-history range action color"></div>
+            <p class="range-legend">The final color names the last recognized fish action. Removed cells failed blockers or at least one action in the pasted line.</p>
+            <div class="range-combo-detail">
+              <div class="section-kicker">Exact combos</div>
+              <strong id="history-combo-title">Select a hand class</strong>
+              <p id="history-combo-copy">Click a colored matrix cell to list its literal suit combinations.</p>
+              <div class="exact-combo-list" id="history-combo-list"></div>
+            </div>
+            <div class="history-thread-layout">
+              <div>
+                <div class="section-kicker">Recognized range thread</div>
+                <ol class="range-thread history-events" id="history-events"></ol>
+              </div>
+              <div>
+                <div class="section-kicker">Parser notes</div>
+                <ul class="history-warnings" id="history-warnings" hidden></ul>
+              </div>
             </div>
           </div>
         </div>

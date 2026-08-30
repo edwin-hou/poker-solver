@@ -14,15 +14,16 @@ Everything runs locally in the browser. Cards, ranges, strategies, and trainer h
 `site/trainer.html` is an original exploit-training surface built around a transparent basic loose-passive live $1/$2/$3 player archetype.
 
 - Hands begin preflop and can continue through river.
-- The fish has one hidden exact two-card combo for the entire hand.
+- The fish has one hidden exact two-card combo for the entire hand. New hands sample from combos that continue against both offered open sizes, avoiding routine open-and-fold endings while keeping folds visible in the range explorer.
 - Separately, the trainer carries one binary exact-combo range from preflop to river: each hand is either still plausible or removed.
 - The fish itself uses deterministic novice rules rather than mixed strategies: wide calls, rare premium 3-bets, passive medium-strength play, loose draw chasing, and value-heavy raises.
 - Every observed fish action filters the same existing range according to those rules; board cards remove impossible blockers.
 - Every answered hero action remains available. Exploring another action creates a persistent sibling branch instead of deleting the line already studied.
 - One fixed hidden fish hand and five-card runout are shared across sibling branches, so sizing comparisons are true counterfactuals.
-- **Reveal Range** displays the literal surviving range for the selected branch, partitions it into exact fold/call/raise combos facing each hero sizing, and lists literal suit combos on demand.
+- **Reveal Range** displays the literal surviving range for the selected branch, partitions and color-codes it by exact fold/call/raise action facing each hero sizing, and lists literal suit combos on demand.
 - Back/forward controls and the branch trail rewind the board, pot, action history, and exact range state along the active branch.
-- Coaching grades are population-exploit heuristics based on the visible surviving range, never the fish's hidden cards.
+- A separate **Estimate a hand history** mode accepts hero cards, player labels, stakes, and a compact action transcript, then threads the same blocker-aware binary fish range through every recognized action.
+- Preflop coaching reads the repository's approximate six-max positional lookup table (so hands such as BTN 94o fold). Postflop coaching uses exact range equity and pot odds plus clearly labeled population-exploit thresholds, never the fish's hidden cards.
 
 The modeled opponent understands the rules and obvious hand strength but does not construct balanced/GTO ranges. This is a study archetype rather than solver output or a claim about every low-stakes player.
 
@@ -114,6 +115,7 @@ src/
   cards.js              exact card and hand evaluation
   range.js              range parsing and combo expansion
   fish-model.js         deterministic loose-passive trainer range model
+  hand-history-range.js pasted-history parser and binary range thread
   trainer-tree.js       persistent trainer decision branches
   preflop-lookup.js     approximate six-max chart engine
   preflop-solver.js     heads-up push/fold CFR+
@@ -131,6 +133,7 @@ site/
 test/
   all-streets.test.js
   fish-model.test.js
+  hand-history-range.test.js
   preflop-lookup.test.js
   site-result-view.test.js
   trainer-page.test.js
