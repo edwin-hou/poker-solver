@@ -103,6 +103,21 @@ test("raised-pot practice includes an early open, cold call, and position-aware 
       }), "call");
     }
   }
+
+  const smallResponses = partitionFishRange(opener.range, {
+    type: "preflop-vs-threebet",
+    position: opener.position,
+    threeBettorPosition: "BTN",
+    threeBetBb: scenario.smallTarget / 3,
+  }, heroCards);
+  const largeResponses = partitionFishRange(opener.range, {
+    type: "preflop-vs-threebet",
+    position: opener.position,
+    threeBettorPosition: "BTN",
+    threeBetBb: scenario.largeTarget / 3,
+  }, heroCards);
+  assert.ok(smallResponses.call.length > largeResponses.call.length);
+  assert.ok(smallResponses.fold.length < largeResponses.fold.length);
 });
 
 test("3-bet practice realizes an early re-raise and keeps both BTN 4-bet sizes multiway", () => {

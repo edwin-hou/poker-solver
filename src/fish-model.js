@@ -267,9 +267,15 @@ function estimatedFacingThreeBetAction(classLabel, context) {
 
   if (["AA", "KK", "AKs"].includes(classLabel)) return "raise";
   if (fourBetFrequency > Math.max(foldFrequency, callFrequency)) return "raise";
+  if (veryLarge) {
+    if (pair && high >= 8) return "call";
+    if (high === 14 && (low >= 11 || (suited && low >= 10))) return "call";
+    if (suited && high === 13 && low >= 12) return "call";
+    return "fold";
+  }
   if (callFrequency > foldFrequency) return "call";
-  if (pair && high >= (veryLarge ? 10 : 8)) return "call";
-  if (high === 14 && (low >= (veryLarge ? 12 : 11) || (suited && low >= 11))) return "call";
+  if (pair && high >= 8) return "call";
+  if (high === 14 && (low >= 11 || (suited && low >= 11))) return "call";
   if (suited && high === 13 && low >= 12) return "call";
   return "fold";
 }
