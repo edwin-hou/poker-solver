@@ -31,7 +31,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /Play 6-handed practice/);
   assert.match(trainer, /Estimate heads-up history/);
   assert.match(trainer, /Heads-up only: it does not model extra players/);
-  assert.match(trainer, /not a claimed multiway GTO solution/);
+  assert.match(trainer, /not a claimed exact multiway solve/);
+  assert.match(trainer, /fold,\s+limp, open-raise, call, or 3-bet/);
   assert.doesNotMatch(trainer, /more likely|posterior/i);
 
   assert.match(trainerJs, /observeFishAction/);
@@ -41,6 +42,10 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /preflopLookupStrategyForClass/);
   assert.match(trainerJs, /createSixHandedPracticeScenario/);
   assert.match(trainerJs, /estimateHeroMultiwayEquity/);
+  assert.match(trainerJs, /preflop-facing-open/);
+  assert.match(trainerJs, /preflop-facing-threebet/);
+  assert.match(trainerJs, /opponentsRespondToThreeBet/);
+  assert.match(trainerJs, /opponentsRespondToFourBet/);
   assert.match(trainerJs, /analyzeFishHandHistory/);
   assert.match(trainerJs, /rangeCellGradient/);
   assert.match(trainerJs, /Explore this branch/);
@@ -67,5 +72,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
 
   assert.match(multiwayPractice, /SIX_HANDED_OPPONENTS/);
   assert.match(multiwayPractice, /limperCount/);
-  assert.match(multiwayPractice, /callsBothIsoSizes/);
+  assert.match(multiwayPractice, /raisedPlan/);
+  assert.match(multiwayPractice, /threeBetPlan/);
+  assert.match(multiwayPractice, /takesEveryAction/);
 });

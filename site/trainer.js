@@ -145,20 +145,38 @@ function randomCardPair() {
   return [deck[0], deck[1]];
 }
 
-function randomTrainerHeroCards() {
-  const seekOpen = Math.random() < 0.85;
+function randomTrainerHeroCards(scenarioKind) {
+  const seekContinue = Math.random() < 0.85;
   let cards = randomCardPair();
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const classLabel = comboClass(cards[0], cards[1]);
-    const lookup = preflopLookupStrategyForClass({
-      preflopSpot: "rfi",
-      heroPosition: "BTN",
-      villainPosition: "BB",
-      stack: 100,
-      openSize: 10 / 3,
-    }, classLabel);
-    const isOpen = lookup.strategy[1] > lookup.strategy[0];
-    if (isOpen === seekOpen) return cards;
+    const lookup = scenarioKind === "threebet"
+      ? preflopLookupStrategyForClass({
+        preflopSpot: "vs-3bet",
+        heroPosition: "BTN",
+        villainPosition: "CO",
+        stack: 100,
+        openSize: 4,
+      }, classLabel)
+      : scenarioKind === "raised"
+      ? preflopLookupStrategyForClass({
+        preflopSpot: "vs-open",
+        heroPosition: "BTN",
+        villainPosition: "HJ",
+        stack: 100,
+        openSize: 4,
+      }, classLabel)
+      : preflopLookupStrategyForClass({
+        preflopSpot: "rfi",
+        heroPosition: "BTN",
+        villainPosition: "BB",
+        stack: 100,
+        openSize: 10 / 3,
+      }, classLabel);
+    const continues = scenarioKind === "raised" || scenarioKind === "threebet"
+      ? lookup.strategy[1] + lookup.strategy[2] > lookup.strategy[0]
+      : lookup.strategy[1] > lookup.strategy[0];
+    if (continues === seekContinue) return cards;
     cards = randomCardPair();
   }
   return cards;
@@ -225,6 +243,13 @@ function snapshotMoment({ kind = "decision", title, copy, decision = null, kicke
     feedback: null,
     board: [...state.board],
     pot: state.pot,
+    scenarioKind: state.scenarioKind,
+    spotLabel: state.spotLabel,
+    openAmount: state.openAmount,
+    openerId: state.openerId,
+    threeBetAmount: state.threeBetAmount,
+    threeBettorId: state.threeBettorId,
+    callerCount: state.callerCount,
     limperCount: state.limperCount,
     smallTarget: state.smallTarget,
     largeTarget: state.largeTarget,
@@ -281,8 +306,10 @@ function observeOpponent(opponent, context, action, text) {
 }
 
 function startNewHand() {
-  const heroCards = randomTrainerHeroCards();
-  const scenario = createSixHandedPracticeScenario({ heroCards });
+  const scenarioRoll = Math.random();
+  const scenarioKind = scenarioRoll < 0.35 ? "limped" : scenarioRoll < 0.78 ? "raised" : "threebet";
+  const heroCards = randomTrainerHeroCards(scenarioKind);
+  const scenario = createSixHandedPracticeScenario({ heroCards, scenarioKind });
   const hiddenCards = scenario.opponents.flatMap((opponent) => opponent.combo.cards);
   const runoutDeck = createDeck([...heroCards, ...hiddenCards]);
   const runout = [];
@@ -300,6 +327,13 @@ function startNewHand() {
     heroStack: scenario.heroStack,
     heroCommitted: scenario.heroCommitted,
     actions: cloneActions(scenario.preflopActions),
+    scenarioKind: scenario.kind,
+    spotLabel: scenario.spotLabel,
+    openAmount: scenario.openAmount,
+    openerId: scenario.openerId,
+    threeBetAmount: scenario.threeBetAmount ?? 0,
+    threeBettorId: scenario.threeBettorId ?? null,
+    callerCount: scenario.callerCount,
     limperCount: scenario.limperCount,
     smallTarget: scenario.smallTarget,
     largeTarget: scenario.largeTarget,
@@ -314,7 +348,14 @@ function startNewHand() {
   rangeView = { momentId: null, opponentId: null, choiceId: null, fishAction: null };
   selectedRangeClass = null;
   elements.rangePanel.hidden = true;
-  pushHeroDecision(buildPreflopOpenDecision());
+  pushHeroDecision(buildPreflopDecision());
+}
+
+function buildPreflopDecision() {
+  if (state.scenarioKind === "threebet") return buildFacingThreeBetDecision();
+  return state.scenarioKind === "raised"
+    ? buildFacingOpenDecision()
+    : buildPreflopOpenDecision();
 }
 
 function pushHeroDecision(decision) {
@@ -360,6 +401,97 @@ function buildPreflopOpenDecision() {
       { id: "fold", label: "Fold", detail: "Do not enter the limped pot" },
       { id: "isoSmall", label: `Raise to ${formatMoney(state.smallTarget)}`, detail: "Baseline isolation size" },
       { id: "isoLarge", label: `Raise to ${formatMoney(state.largeTarget)}`, detail: "Larger live exploit size" },
+    ],
+  };
+}
+
+function buildFacingOpenDecision() {
+  const opener = opponentById(state.openerId);
+  const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
+  const lookup = preflopLookupStrategyForClass({
+    preflopSpot: "vs-open",
+    heroPosition: "BTN",
+    villainPosition: opener.position,
+    stack: 100,
+    openSize: state.openAmount / 3,
+  }, classLabel);
+  const [foldFrequency, callFrequency, threeBetFrequency] = lookup.strategy;
+  const frequencies = { fold: foldFrequency, callOpen: callFrequency, squeezeSmall: threeBetFrequency };
+  const recommended = Object.entries(frequencies)
+    .sort((left, right) => right[1] - left[1])[0][0];
+  const acceptable = [];
+  if (threeBetFrequency >= 0.5) acceptable.push("squeezeLarge");
+  const reason = recommended === "fold"
+    ? `${classLabel} folds most often in the ${lookup.nodeLabel} baseline (${Math.round(foldFrequency * 100)}% fold). The extra caller improves the price but also strengthens the field, so this estimate does not force a marginal hand into a squeeze.`
+    : recommended === "callOpen"
+      ? `${classLabel} continues mainly by calling in the ${lookup.nodeLabel} baseline (${Math.round(callFrequency * 100)}% call). The multiway adjustment keeps the call while treating a squeeze as the more selective action.`
+      : `${classLabel} is primarily a 3-bet in the ${lookup.nodeLabel} baseline (${Math.round(threeBetFrequency * 100)}% 3-bet). With dead money from the caller, ${formatMoney(state.smallTarget)} is the baseline-guided squeeze.`;
+  return {
+    type: "preflop-facing-open",
+    title: `You look down at ${classLabel} on the BTN. What is your plan?`,
+    copy: `${opener.position} raised to ${formatMoney(state.openAmount)} and one player called. Both blinds are still waiting to act.`,
+    recommended,
+    acceptable,
+    reason,
+    basis: {
+      title: "Six-max positional baseline + multiway estimate",
+      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(threeBetFrequency * 100)}% 3-bet. That heads-up lookup anchors the choice; the cold caller and squeeze sizes are transparent estimates, not an exact custom multiway solve.`,
+    },
+    openerId: state.openerId,
+    openAmount: state.openAmount,
+    smallTarget: state.smallTarget,
+    largeTarget: state.largeTarget,
+    options: [
+      { id: "fold", label: "Fold", detail: "Leave the raised pot" },
+      { id: "callOpen", label: `Call ${formatMoney(state.openAmount)}`, detail: "Take the price in position" },
+      { id: "squeezeSmall", label: `Squeeze to ${formatMoney(state.smallTarget)}`, detail: "Baseline squeeze size" },
+      { id: "squeezeLarge", label: `Squeeze to ${formatMoney(state.largeTarget)}`, detail: "Higher-pressure live size" },
+    ],
+  };
+}
+
+function buildFacingThreeBetDecision() {
+  const opener = opponentById(state.openerId);
+  const threeBettor = opponentById(state.threeBettorId);
+  const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
+  const lookup = preflopLookupStrategyForClass({
+    preflopSpot: "vs-3bet",
+    heroPosition: "BTN",
+    villainPosition: threeBettor.position,
+    stack: 100,
+    openSize: state.openAmount / 3,
+  }, classLabel);
+  const [foldFrequency, callFrequency, fourBetFrequency] = lookup.strategy;
+  const frequencies = { fold: foldFrequency, callThreeBet: callFrequency, fourBetSmall: fourBetFrequency };
+  const recommended = Object.entries(frequencies)
+    .sort((left, right) => right[1] - left[1])[0][0];
+  const acceptable = fourBetFrequency >= 0.5 ? ["fourBetLarge"] : [];
+  const reason = recommended === "fold"
+    ? `${classLabel} folds most often in the ${lookup.nodeLabel} baseline (${Math.round(foldFrequency * 100)}% fold). An opener still behind you makes an unsupported cold call even less attractive.`
+    : recommended === "callThreeBet"
+      ? `${classLabel} continues mainly by calling in the ${lookup.nodeLabel} baseline (${Math.round(callFrequency * 100)}% call). The cold-call line is kept as an estimate because the original opener still has a decision.`
+      : `${classLabel} is primarily a 4-bet in the ${lookup.nodeLabel} baseline (${Math.round(fourBetFrequency * 100)}% 4-bet). ${formatMoney(state.smallTarget)} is the baseline-guided size, with ${formatMoney(state.largeTarget)} available as a higher-pressure branch.`;
+  return {
+    type: "preflop-facing-threebet",
+    title: `You look down at ${classLabel} on the BTN. Face the 3-bet?`,
+    copy: `${opener.position} opened to ${formatMoney(state.openAmount)} and ${threeBettor.position} 3-bet to ${formatMoney(state.threeBetAmount)}. The original raiser and both blinds are still live.`,
+    recommended,
+    acceptable,
+    reason,
+    basis: {
+      title: "Six-max facing-3-bet baseline + multiway estimate",
+      copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet. The repository lookup anchors the hand choice; cold-calling with the opener behind and the exact 4-bet sizes are disclosed estimates.`,
+    },
+    openerId: state.openerId,
+    threeBettorId: state.threeBettorId,
+    threeBetAmount: state.threeBetAmount,
+    smallTarget: state.smallTarget,
+    largeTarget: state.largeTarget,
+    options: [
+      { id: "fold", label: "Fold", detail: "Respect the early-position strength" },
+      { id: "callThreeBet", label: `Call ${formatMoney(state.threeBetAmount)}`, detail: "Cold-call in position" },
+      { id: "fourBetSmall", label: `4-bet to ${formatMoney(state.smallTarget)}`, detail: "Baseline pressure size" },
+      { id: "fourBetLarge", label: `4-bet to ${formatMoney(state.largeTarget)}`, detail: "Larger live pressure size" },
     ],
   };
 }
@@ -523,7 +655,51 @@ function applyHeroChoice(decision, choice) {
     commitTo("hero", target);
     addAction("Hero", `isolates to ${formatMoney(target)}`);
     state.heroStatus = `Raised to ${formatMoney(target)}`;
-    opponentsRespondPreflop(target);
+    opponentsRespondToIsolation(target);
+    return;
+  }
+
+  if (decision.type === "preflop-facing-open") {
+    if (choice === "fold") {
+      addAction("Hero", "folds facing the raise and caller");
+      state.heroStatus = "Folded";
+      finishHand("You folded the raised pot. Reveal a range to inspect every seat's exact preflop action range.", false);
+      return;
+    }
+    if (choice === "callOpen") {
+      commitTo("hero", state.openAmount);
+      addAction("Hero", `calls ${formatMoney(state.openAmount)} on the BTN`);
+      state.heroStatus = `Called ${formatMoney(state.openAmount)}`;
+      blindsRespondToOpen();
+      return;
+    }
+    const target = choice === "squeezeLarge" ? state.largeTarget : state.smallTarget;
+    commitTo("hero", target);
+    addAction("Hero", `squeezes to ${formatMoney(target)}`);
+    state.heroStatus = `Squeezed to ${formatMoney(target)}`;
+    opponentsRespondToThreeBet(target);
+    return;
+  }
+
+  if (decision.type === "preflop-facing-threebet") {
+    if (choice === "fold") {
+      addAction("Hero", "folds facing the 3-bet");
+      state.heroStatus = "Folded";
+      finishHand("You folded to the 3-bet. Reveal a range to inspect the opener's and 3-bettor's exact preflop ranges.", false);
+      return;
+    }
+    if (choice === "callThreeBet") {
+      commitTo("hero", state.threeBetAmount);
+      addAction("Hero", `cold-calls ${formatMoney(state.threeBetAmount)}`);
+      state.heroStatus = `Called ${formatMoney(state.threeBetAmount)}`;
+      opponentsRespondAfterHeroCallsThreeBet();
+      return;
+    }
+    const target = choice === "fourBetLarge" ? state.largeTarget : state.smallTarget;
+    commitTo("hero", target);
+    addAction("Hero", `4-bets to ${formatMoney(target)}`);
+    state.heroStatus = `4-bet to ${formatMoney(target)}`;
+    opponentsRespondToFourBet(target);
     return;
   }
 
@@ -558,7 +734,7 @@ function applyHeroChoice(decision, choice) {
   }
 }
 
-function opponentsRespondPreflop(openAmount) {
+function opponentsRespondToIsolation(openAmount) {
   const context = { type: "preflop-vs-open", openBb: openAmount / 3 };
   const responseOrder = ["sb", "bb", "utg", "hj", "co"];
   for (const id of responseOrder) {
@@ -575,6 +751,114 @@ function opponentsRespondPreflop(openAmount) {
       commitTo(opponent.id, state.heroCommitted);
       opponent.status = `Called ${formatMoney(openAmount)}`;
       addAction(opponent.position, `calls ${formatMoney(openAmount)}`);
+    }
+  }
+  advanceStreet();
+}
+
+function blindsRespondToOpen() {
+  const opener = opponentById(state.openerId);
+  const contextFor = (opponent) => ({
+    type: "sixmax-vs-open",
+    position: opponent.position,
+    openerPosition: opener.position,
+    openBb: state.openAmount / 3,
+  });
+  for (const id of ["sb", "bb"]) {
+    const opponent = opponentById(id);
+    if (!opponent || opponent.folded) continue;
+    const context = contextFor(opponent);
+    const action = sampleFishAction(opponent.combo, context);
+    if (action === "raise") throw new Error("Curated raised-pot practice produced an unexpected blind 3-bet.");
+    observeOpponent(opponent, context, action, `Preflop: ${opponent.position} ${action}s facing ${opener.position}'s ${formatMoney(state.openAmount)} open.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to the open";
+      addAction(opponent.position, "folds");
+    } else {
+      commitTo(opponent.id, state.openAmount);
+      opponent.status = `Called ${formatMoney(state.openAmount)}`;
+      addAction(opponent.position, `calls ${formatMoney(state.openAmount)}`);
+    }
+  }
+  advanceStreet();
+}
+
+function opponentsRespondToThreeBet(target) {
+  const contextFor = (opponent) => ({
+    type: "preflop-vs-threebet",
+    position: opponent.position,
+    threeBettorPosition: "BTN",
+    threeBetBb: target / 3,
+  });
+  for (const id of ["sb", "bb", "utg", "hj", "co"]) {
+    const opponent = opponentById(id);
+    if (!opponent || opponent.folded) continue;
+    const context = contextFor(opponent);
+    const action = sampleFishAction(opponent.combo, context);
+    if (action === "raise") throw new Error("Curated raised-pot practice produced an unexpected 4-bet.");
+    observeOpponent(opponent, context, action, `Preflop: ${opponent.position} ${action}s facing your ${formatMoney(target)} squeeze.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to squeeze";
+      addAction(opponent.position, `folds to ${formatMoney(target)}`);
+    } else {
+      commitTo(opponent.id, target);
+      opponent.status = `Called ${formatMoney(target)}`;
+      addAction(opponent.position, `calls ${formatMoney(target)}`);
+    }
+  }
+  advanceStreet();
+}
+
+function opponentsRespondAfterHeroCallsThreeBet() {
+  const threeBettor = opponentById(state.threeBettorId);
+  for (const id of ["sb", "bb", state.openerId]) {
+    const opponent = opponentById(id);
+    if (!opponent || opponent.folded) continue;
+    const context = {
+      type: "preflop-vs-threebet",
+      position: opponent.position,
+      threeBettorPosition: threeBettor.position,
+      threeBetBb: state.threeBetAmount / 3,
+    };
+    const action = sampleFishAction(opponent.combo, context);
+    if (action === "raise") throw new Error("Curated 3-bet practice produced an unexpected 4-bet after the hero called.");
+    observeOpponent(opponent, context, action, `Preflop: ${opponent.position} ${action}s facing ${threeBettor.position}'s ${formatMoney(state.threeBetAmount)} 3-bet.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to 3-bet";
+      addAction(opponent.position, "folds to the 3-bet");
+    } else {
+      commitTo(opponent.id, state.threeBetAmount);
+      opponent.status = `Called ${formatMoney(state.threeBetAmount)}`;
+      addAction(opponent.position, `calls ${formatMoney(state.threeBetAmount)}`);
+    }
+  }
+  advanceStreet();
+}
+
+function opponentsRespondToFourBet(target) {
+  for (const id of ["sb", "bb", state.openerId, state.threeBettorId]) {
+    const opponent = opponentById(id);
+    if (!opponent || opponent.folded) continue;
+    const context = {
+      type: "preflop-vs-fourbet",
+      position: opponent.position,
+      fourBettorPosition: "BTN",
+      fourBetBb: target / 3,
+    };
+    const action = sampleFishAction(opponent.combo, context);
+    if (action === "raise") throw new Error("Curated 3-bet practice produced an unexpected 5-bet.");
+    observeOpponent(opponent, context, action, `Preflop: ${opponent.position} ${action}s facing your ${formatMoney(target)} 4-bet.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to 4-bet";
+      addAction(opponent.position, `folds to ${formatMoney(target)}`);
+    } else {
+      commitTo(opponent.id, target);
+      opponent.status = `Called ${formatMoney(target)}`;
+      addAction(opponent.position, `calls ${formatMoney(target)}`);
     }
   }
   advanceStreet();
@@ -765,6 +1049,52 @@ function fishResponseScenarios(moment, opponent) {
     ];
   }
 
+  if (moment.decision.type === "preflop-facing-open" && !opponent.folded) {
+    const contextFor = (target) => ({
+      type: "preflop-vs-threebet",
+      position: opponent.position,
+      threeBettorPosition: "BTN",
+      threeBetBb: target / 3,
+    });
+    return [
+      {
+        choiceId: "squeezeSmall",
+        label: optionLabel("squeezeSmall"),
+        context: contextFor(moment.decision.smallTarget),
+        actions: [...RANGE_ACTIONS],
+      },
+      {
+        choiceId: "squeezeLarge",
+        label: optionLabel("squeezeLarge"),
+        context: contextFor(moment.decision.largeTarget),
+        actions: [...RANGE_ACTIONS],
+      },
+    ];
+  }
+
+  if (moment.decision.type === "preflop-facing-threebet" && !opponent.folded) {
+    const contextFor = (target) => ({
+      type: "preflop-vs-fourbet",
+      position: opponent.position,
+      fourBettorPosition: "BTN",
+      fourBetBb: target / 3,
+    });
+    return [
+      {
+        choiceId: "fourBetSmall",
+        label: optionLabel("fourBetSmall"),
+        context: contextFor(moment.decision.smallTarget),
+        actions: [...RANGE_ACTIONS],
+      },
+      {
+        choiceId: "fourBetLarge",
+        label: optionLabel("fourBetLarge"),
+        context: contextFor(moment.decision.largeTarget),
+        actions: [...RANGE_ACTIONS],
+      },
+    ];
+  }
+
   if (moment.decision.type === "postflop-after-checks" && !opponent.folded) {
     return [
       {
@@ -787,6 +1117,8 @@ function fishResponseScenarios(moment, opponent) {
 
 function fishActionLabel(action, context) {
   if (action === "raise" && context.type === "preflop-vs-open") return "3-bet";
+  if (action === "raise" && context.type === "preflop-vs-threebet") return "4-bet";
+  if (action === "raise" && context.type === "preflop-vs-fourbet") return "5-bet";
   return `${action[0].toUpperCase()}${action.slice(1)}`;
 }
 
@@ -1080,7 +1412,7 @@ function render() {
   const moment = path[historyIndex];
   if (!moment) return;
   elements.streetPill.textContent = streetLabel(moment.street);
-  elements.spotLabel.textContent = `6-handed BTN isolation · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 100bb`;
+  elements.spotLabel.textContent = `${moment.spotLabel} · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 100bb`;
   elements.potLabel.textContent = formatMoney(moment.pot);
   elements.heroStack.textContent = formatMoney(moment.heroStack);
   const selectedOption = moment.kind === "decision" && moment.answer

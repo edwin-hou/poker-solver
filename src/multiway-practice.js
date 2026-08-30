@@ -29,66 +29,306 @@ function actionRange(range, context, action) {
   return range.filter((combo) => fishActionForCombo(combo, context) === action);
 }
 
-function callsBothIsoSizes(range, isoOpenBbs) {
-  return range.filter((combo) => isoOpenBbs.every((openBb) =>
-    fishActionForCombo(combo, { type: "preflop-vs-open", openBb }) === "call"));
+function takesEveryAction(range, contexts, action) {
+  return range.filter((combo) => contexts.every((context) =>
+    fishActionForCombo(combo, context) === action));
 }
 
-function avoidsThreeBetAtBothSizes(range, isoOpenBbs) {
-  return range.filter((combo) => isoOpenBbs.every((openBb) =>
-    fishActionForCombo(combo, { type: "preflop-vs-open", openBb }) !== "raise"));
+function baseCommitment(seat, bigBlind) {
+  if (seat.id === "sb") return 2;
+  if (seat.id === "bb") return bigBlind;
+  return 0;
 }
 
-/** Build a six-seat BTN isolation spot with one or two limpers and guaranteed multiway callers. */
+function unopenedContext(position, openBb = 4) {
+  return { type: "sixmax-unopened", position, openBb };
+}
+
+function afterLimpContext(position, openBb = 4) {
+  return { type: "sixmax-after-limp", position, openBb };
+}
+
+function vsOpenContext(position, openerPosition, openBb) {
+  return { type: "sixmax-vs-open", position, openerPosition, openBb };
+}
+
+function vsThreeBetContext(position, threeBettorPosition, threeBetBb) {
+  return { type: "preflop-vs-threebet", position, threeBettorPosition, threeBetBb };
+}
+
+function vsFourBetContext(position, fourBettorPosition, fourBetBb) {
+  return { type: "preflop-vs-fourbet", position, fourBettorPosition, fourBetBb };
+}
+
+function limpedPlan({ bigBlind, random }) {
+  const limperCount = random() < 0.58 ? 2 : 1;
+  const choices = limperCount === 1
+    ? [[EARLY_POSITIONS[Math.floor(random() * EARLY_POSITIONS.length)]]]
+    : [["utg", "hj"], ["utg", "co"], ["hj", "co"]];
+  const limperIds = new Set(choices[Math.floor(random() * choices.length)]);
+  const firstLimperIndex = Math.min(...[...limperIds].map((id) => EARLY_POSITIONS.indexOf(id)));
+  const smallTarget = 15 + Math.max(0, limperCount - 1) * bigBlind;
+  const largeTarget = 21 + Math.max(0, limperCount - 1) * bigBlind;
+  const responseContexts = [smallTarget, largeTarget].map((target) => ({
+    type: "preflop-vs-open",
+    openBb: target / bigBlind,
+  }));
+  const plans = new Map();
+
+  for (const id of EARLY_POSITIONS) {
+    const seat = SIX_HANDED_OPPONENTS.find((entry) => entry.id === id);
+    const index = EARLY_POSITIONS.indexOf(id);
+    const context = index <= firstLimperIndex
+      ? unopenedContext(seat.position)
+      : afterLimpContext(seat.position);
+    const action = limperIds.has(id) ? "limp" : "fold";
+    plans.set(id, {
+      action,
+      context,
+      committed: action === "limp" ? bigBlind : 0,
+      status: action === "limp" ? `Limped ${bigBlind}` : "Folded preflop",
+      text: action === "limp" ? `limps ${bigBlind}` : "folds",
+      provenance: action === "limp"
+        ? "The positional six-max lookup supplies the entering range; this loose-passive model converts its marginal opens into estimated limps."
+        : "Keep only combos outside this seat's GTO-estimated entering range.",
+    });
+  }
+
+  const designatedLimper = [...limperIds][0];
+  return {
+    kind: "limped",
+    plans,
+    constraints: new Map([
+      [designatedLimper, (range) => takesEveryAction(range, responseContexts, "call")],
+      ["bb", (range) => takesEveryAction(range, responseContexts, "call")],
+      ["sb", (range) => range.filter((combo) => responseContexts.every((context) =>
+        fishActionForCombo(combo, context) !== "raise"))],
+    ]),
+    limperCount,
+    callerCount: 0,
+    openAmount: 0,
+    openerId: null,
+    smallTarget,
+    largeTarget,
+    startingPot: 6 + limperCount * bigBlind,
+    spotLabel: `BTN versus ${limperCount} limper${limperCount === 1 ? "" : "s"}`,
+  };
+}
+
+function raisedPlan({ bigBlind, random }) {
+  const openAmount = 12;
+  const openBb = openAmount / bigBlind;
+  const openerId = random() < 0.55 ? "utg" : "hj";
+  const opener = SIX_HANDED_OPPONENTS.find((seat) => seat.id === openerId);
+  const laterIds = EARLY_POSITIONS.slice(EARLY_POSITIONS.indexOf(openerId) + 1);
+  const callerId = laterIds[Math.floor(random() * laterIds.length)];
+  const caller = SIX_HANDED_OPPONENTS.find((seat) => seat.id === callerId);
+  const smallTarget = 48;
+  const largeTarget = 60;
+  const threeBetContextsFor = (position) => [smallTarget, largeTarget].map((target) =>
+    vsThreeBetContext(position, "BTN", target / bigBlind));
+  const plans = new Map();
+
+  for (const id of EARLY_POSITIONS) {
+    const seat = SIX_HANDED_OPPONENTS.find((entry) => entry.id === id);
+    const index = EARLY_POSITIONS.indexOf(id);
+    const openerIndex = EARLY_POSITIONS.indexOf(openerId);
+    if (index < openerIndex) {
+      plans.set(id, {
+        action: "fold",
+        context: unopenedContext(seat.position, openBb),
+        committed: 0,
+        status: "Folded preflop",
+        text: "folds",
+        provenance: "Keep only combos outside this seat's GTO-estimated open-first-in range.",
+      });
+      continue;
+    }
+    if (id === openerId) {
+      plans.set(id, {
+        action: "raise",
+        context: unopenedContext(seat.position, openBb),
+        committed: openAmount,
+        status: `Raised to ${openAmount}`,
+        text: `raises to ${openAmount}`,
+        provenance: "Keep only combos assigned to raise by this seat's positional GTO-estimated entering range.",
+      });
+      continue;
+    }
+    const action = id === callerId ? "call" : "fold";
+    plans.set(id, {
+      action,
+      context: vsOpenContext(seat.position, opener.position, openBb),
+      committed: action === "call" ? openAmount : 0,
+      status: action === "call" ? `Called ${openAmount}` : "Folded preflop",
+      text: action === "call" ? `calls ${openAmount}` : "folds",
+      provenance: `Use the repository's GTO-estimated ${seat.position}-versus-${opener.position} lookup for fold, call, and 3-bet boundaries.`,
+    });
+  }
+
+  const constraints = new Map([
+    [openerId, (range) => takesEveryAction(range, threeBetContextsFor(opener.position), "call")],
+    [callerId, (range) => takesEveryAction(range, threeBetContextsFor(caller.position), "call")],
+  ]);
+  for (const blindId of ["sb", "bb"]) {
+    const blind = SIX_HANDED_OPPONENTS.find((seat) => seat.id === blindId);
+    const context = vsOpenContext(blind.position, opener.position, openBb);
+    constraints.set(blindId, (range) => range.filter((combo) =>
+      fishActionForCombo(combo, context) !== "raise"));
+  }
+
+  return {
+    kind: "raised",
+    plans,
+    constraints,
+    limperCount: 0,
+    callerCount: 1,
+    openAmount,
+    openerId,
+    smallTarget,
+    largeTarget,
+    startingPot: 6 + openAmount * 2,
+    spotLabel: `BTN facing ${opener.position} raise + 1 caller`,
+  };
+}
+
+function threeBetPlan({ bigBlind, random }) {
+  const openAmount = 12;
+  const threeBetAmount = 42;
+  const openBb = openAmount / bigBlind;
+  const threeBetBb = threeBetAmount / bigBlind;
+  const openerId = "utg";
+  const threeBettorId = random() < 0.5 ? "hj" : "co";
+  const opener = SIX_HANDED_OPPONENTS.find((seat) => seat.id === openerId);
+  const threeBettor = SIX_HANDED_OPPONENTS.find((seat) => seat.id === threeBettorId);
+  const smallTarget = 105;
+  const largeTarget = 126;
+  const fourBetContextsFor = (position) => [smallTarget, largeTarget].map((target) =>
+    vsFourBetContext(position, "BTN", target / bigBlind));
+  const plans = new Map();
+
+  for (const id of EARLY_POSITIONS) {
+    const seat = SIX_HANDED_OPPONENTS.find((entry) => entry.id === id);
+    if (id === openerId) {
+      plans.set(id, {
+        action: "raise",
+        context: unopenedContext(seat.position, openBb),
+        committed: openAmount,
+        status: `Raised to ${openAmount}`,
+        text: `raises to ${openAmount}`,
+        provenance: "Keep only combos assigned to raise by this seat's positional GTO-estimated entering range.",
+      });
+      continue;
+    }
+    if (id === threeBettorId) {
+      plans.set(id, {
+        action: "raise",
+        context: vsOpenContext(seat.position, opener.position, openBb),
+        committed: threeBetAmount,
+        status: `3-bet to ${threeBetAmount}`,
+        text: `3-bets to ${threeBetAmount}`,
+        provenance: `Use the repository's GTO-estimated ${seat.position}-versus-${opener.position} aggressive continuation range.`,
+      });
+      continue;
+    }
+    const facingThreeBet = EARLY_POSITIONS.indexOf(id) > EARLY_POSITIONS.indexOf(threeBettorId);
+    plans.set(id, {
+      action: "fold",
+      context: facingThreeBet
+        ? vsThreeBetContext(seat.position, threeBettor.position, threeBetBb)
+        : vsOpenContext(seat.position, opener.position, openBb),
+      committed: 0,
+      status: "Folded preflop",
+      text: "folds",
+      provenance: facingThreeBet
+        ? "Keep only hands outside this seat's estimated continuation range facing the 3-bet."
+        : `Use the repository's GTO-estimated ${seat.position}-versus-${opener.position} fold boundary.`,
+    });
+  }
+
+  const openerFacingThreeBet = vsThreeBetContext(opener.position, threeBettor.position, threeBetBb);
+  const constraints = new Map([
+    [openerId, (range) => takesEveryAction(
+      actionRange(range, openerFacingThreeBet, "call"),
+      fourBetContextsFor(opener.position),
+      "call",
+    )],
+    [threeBettorId, (range) => takesEveryAction(range, fourBetContextsFor(threeBettor.position), "call")],
+  ]);
+  for (const blindId of ["sb", "bb"]) {
+    const blind = SIX_HANDED_OPPONENTS.find((seat) => seat.id === blindId);
+    const contexts = [
+      vsThreeBetContext(blind.position, threeBettor.position, threeBetBb),
+      ...fourBetContextsFor(blind.position),
+    ];
+    constraints.set(blindId, (range) => range.filter((combo) => contexts.every((context) =>
+      fishActionForCombo(combo, context) !== "raise")));
+  }
+
+  return {
+    kind: "threebet",
+    plans,
+    constraints,
+    limperCount: 0,
+    callerCount: 0,
+    openAmount,
+    openerId,
+    threeBetAmount,
+    threeBettorId,
+    smallTarget,
+    largeTarget,
+    startingPot: 6 + openAmount + threeBetAmount,
+    spotLabel: `BTN facing ${opener.position} open + ${threeBettor.position} 3-bet`,
+  };
+}
+
+/** Build an interesting six-seat BTN spot with limps, a raised pot, or an early 3-bet. */
 export function createSixHandedPracticeScenario({
   heroCards,
   bigBlind = 3,
   stack = 300,
   random = Math.random,
+  scenarioKind,
 } = {}) {
   if (!Array.isArray(heroCards) || heroCards.length !== 2) throw new Error("Six-handed practice needs two hero cards.");
-  const limperCount = random() < 0.58 ? 2 : 1;
-  const offset = Math.floor(random() * EARLY_POSITIONS.length);
-  const limperIds = new Set(Array.from({ length: limperCount }, (_, index) =>
-    EARLY_POSITIONS[(offset + index) % EARLY_POSITIONS.length]));
-  const smallTarget = 15 + Math.max(0, limperCount - 1) * bigBlind;
-  const largeTarget = 21 + Math.max(0, limperCount - 1) * bigBlind;
-  const isoOpenBbs = [smallTarget / bigBlind, largeTarget / bigBlind];
+  const roll = random();
+  const kind = scenarioKind ?? (roll < 0.35 ? "limped" : roll < 0.78 ? "raised" : "threebet");
+  if (!["limped", "raised", "threebet"].includes(kind)) throw new Error(`Unknown six-handed scenario kind: ${kind}`);
+  const plan = kind === "threebet"
+    ? threeBetPlan({ bigBlind, random })
+    : kind === "raised"
+      ? raisedPlan({ bigBlind, random })
+      : limpedPlan({ bigBlind, random });
   const hiddenCards = [...heroCards];
-  let designatedLimper = [...limperIds][0];
 
   const opponents = SIX_HANDED_OPPONENTS.map((seat) => {
     const beliefPrior = createFishRange({ heroCards });
     const dealtPrior = withoutHiddenCards(createFishRange({ heroCards }), hiddenCards);
+    const actionPlan = plan.plans.get(seat.id);
     let range = beliefPrior;
     let comboPool = dealtPrior;
+    let committed = baseCommitment(seat, bigBlind);
     let status = "Waiting for your action";
     let folded = false;
-    let committed = seat.id === "sb" ? 2 : seat.id === "bb" ? bigBlind : 0;
     const rangeEvents = [{
       street: "preflop",
       text: `${seat.position} starts with every exact combo not blocked by your cards.`,
     }];
 
-    if (EARLY_POSITIONS.includes(seat.id)) {
-      const action = limperIds.has(seat.id) ? "limp" : "fold";
-      const context = { type: "preflop-unopened", position: seat.position };
-      range = observeFishAction(range, context, action, heroCards);
-      comboPool = actionRange(comboPool, context, action);
-      if (seat.id === designatedLimper) comboPool = callsBothIsoSizes(comboPool, isoOpenBbs);
-      status = action === "limp" ? `Limped ${bigBlind}` : "Folded preflop";
-      folded = action === "fold";
-      committed = action === "limp" ? bigBlind : 0;
+    if (actionPlan) {
+      range = observeFishAction(range, actionPlan.context, actionPlan.action, heroCards);
+      comboPool = actionRange(comboPool, actionPlan.context, actionPlan.action);
+      committed = actionPlan.committed;
+      status = actionPlan.status;
+      folded = actionPlan.action === "fold";
       rangeEvents.push({
         street: "preflop",
-        text: `${seat.position} ${action === "limp" ? "limps" : "folds"}; keep only exact combos assigned to that unopened-pot action.`,
+        text: `${seat.position} ${actionPlan.text}. ${actionPlan.provenance}`,
       });
-    } else if (seat.id === "bb") {
-      comboPool = callsBothIsoSizes(comboPool, isoOpenBbs);
-    } else {
-      comboPool = avoidsThreeBetAtBothSizes(comboPool, isoOpenBbs);
     }
 
+    const constraint = plan.constraints.get(seat.id);
+    if (constraint) comboPool = constraint(comboPool);
     const combo = pick(comboPool, random);
     hiddenCards.push(...combo.cards);
     return {
@@ -100,23 +340,21 @@ export function createSixHandedPracticeScenario({
       committed,
       status,
       folded,
+      preflopAction: actionPlan?.action ?? null,
     };
   });
 
   return {
+    ...plan,
     opponents,
-    limperCount,
-    smallTarget,
-    largeTarget,
     heroCommitted: 1,
     heroStack: stack - 1,
-    startingPot: 6 + limperCount * bigBlind,
     preflopActions: opponents
       .filter((opponent) => EARLY_POSITIONS.includes(opponent.id))
       .map((opponent) => ({
         street: "preflop",
         actor: opponent.position,
-        text: opponent.folded ? "folds" : `limps ${bigBlind}`,
+        text: plan.plans.get(opponent.id).text,
       })),
   };
 }

@@ -14,7 +14,7 @@ Everything runs locally in the browser. Cards, ranges, strategies, and trainer h
 `site/trainer.html` is an original six-handed exploit-training surface built around transparent basic loose-passive live $1/$2/$3 player archetypes.
 
 - Hands begin preflop and can continue through river.
-- Five opponents occupy UTG, HJ, CO, SB, and BB around a BTN hero. Some early seats fold, one or two limp, and curated hidden hands guarantee at least two callers against either offered isolation size so practice reaches a genuinely multiway flop.
+- Five opponents occupy UTG, HJ, CO, SB, and BB around a BTN hero. Early seats use position- and action-aware fold, limp, open-raise, call, and 3-bet ranges. Curated limped pots, open-plus-caller pots, and early-position open/3-bet pots make the BTN solve isolation, overcall, squeeze, cold-call, and 4-bet decisions instead of repeatedly opening into five folds.
 - Every opponent has one fixed hidden exact combo and a separate independent binary marginal range for the entire hand. Each exact combo is either still plausible for that seat or removed.
 - Opponents use deterministic novice rules rather than mixed strategies: wide limps and calls, passive medium-strength play, loose draw chasing, and value-heavy raises.
 - Every observed opponent action filters that seat's existing range; board cards remove impossible blockers from every active range.
@@ -23,7 +23,7 @@ Everything runs locally in the browser. Cards, ranges, strategies, and trainer h
 - **Reveal Range** lets you select a seat, displays its literal surviving range for the selected branch, partitions and color-codes it by exact fold/call/raise action facing each hero sizing, and lists literal suit combos on demand.
 - Back/forward controls and the branch trail rewind the board, pot, action history, and all five exact range states along the active branch.
 - A separate heads-up-only **Estimate a hand history** mode accepts hero cards, player labels, stakes, and a compact action transcript, then threads one blocker-aware binary opponent range through every recognized action.
-- Preflop coaching reads the repository's approximate six-max positional lookup table (so hands such as BTN 94o fold). Multiway postflop coaching samples equity from every active exact range and applies clearly disclosed population-exploit thresholds; it is not presented as a solved multiway equilibrium and never reads hidden cards.
+- Preflop coaching reads the repository's approximate six-max positional lookup table at matching open, facing-open, and facing-3-bet nodes (so hands such as BTN 94o fold). Limping, cold-caller, squeeze-sizing, and postflop multiway adjustments are clearly labeled estimates. Postflop coaching samples equity from every active exact range and applies disclosed population-exploit thresholds; it is not presented as a solved multiway equilibrium and never reads hidden cards.
 
 The modeled opponent understands the rules and obvious hand strength but does not construct balanced/GTO ranges. This is a study archetype rather than solver output or a claim about every low-stakes player.
 
