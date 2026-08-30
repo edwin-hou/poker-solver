@@ -16,6 +16,7 @@ import {
   suitIndex,
 } from "./cards.js";
 import { expandRange } from "./range.js";
+import { preflopLookupStrategyForClass } from "./preflop-lookup.js";
 
 export const FISH_PROFILE = Object.freeze({
   id: "live-123-basic-fish-v2",
@@ -216,6 +217,74 @@ function actionUnopened(classLabel) {
   return "fold";
 }
 
+function lookupStrategy(classLabel, config) {
+  return preflopLookupStrategyForClass({
+    stack: 100,
+    openSize: 3,
+    ...config,
+  }, classLabel).strategy;
+}
+
+function estimatedUnopenedAction(classLabel, context) {
+  const position = context.position ?? "CO";
+  const [foldFrequency, openFrequency] = lookupStrategy(classLabel, {
+    preflopSpot: "rfi",
+    heroPosition: position,
+    villainPosition: "BB",
+    openSize: Number(context.openBb ?? 3),
+  });
+  const strength = preflopHandStrength(classLabel);
+  const afterLimp = context.type === "sixmax-after-limp";
+
+  // Non-SB equilibrium charts normally use raise-or-fold. The recreational
+  // profile turns the lower part of that solver-estimated entering range into
+  // limps, while keeping the strongest opens as raises.
+  if (openFrequency > foldFrequency && strength >= (afterLimp ? 0.57 : 0.61)) return "raise";
+  if (openFrequency > 0 || (afterLimp && strength >= 0.36)) return "limp";
+  return "fold";
+}
+
+function estimatedFacingOpenAction(classLabel, context) {
+  const [foldFrequency, callFrequency, threeBetFrequency] = lookupStrategy(classLabel, {
+    preflopSpot: "vs-open",
+    heroPosition: context.position ?? "CO",
+    villainPosition: context.openerPosition ?? "UTG",
+    openSize: Number(context.openBb ?? 3),
+  });
+  if (threeBetFrequency > Math.max(foldFrequency, callFrequency)) return "raise";
+  if (callFrequency > foldFrequency || callFrequency + threeBetFrequency > foldFrequency) return "call";
+  return "fold";
+}
+
+function estimatedFacingThreeBetAction(classLabel, context) {
+  const [foldFrequency, callFrequency, fourBetFrequency] = lookupStrategy(classLabel, {
+    preflopSpot: "vs-3bet",
+    heroPosition: context.position ?? "BTN",
+    villainPosition: context.threeBettorPosition ?? "BTN",
+  });
+  const { high, low, pair, suited } = classShape(classLabel);
+  const veryLarge = Number(context.threeBetBb ?? 16) >= 20;
+
+  if (["AA", "KK", "AKs"].includes(classLabel)) return "raise";
+  if (fourBetFrequency > Math.max(foldFrequency, callFrequency)) return "raise";
+  if (callFrequency > foldFrequency) return "call";
+  if (pair && high >= (veryLarge ? 10 : 8)) return "call";
+  if (high === 14 && (low >= (veryLarge ? 12 : 11) || (suited && low >= 11))) return "call";
+  if (suited && high === 13 && low >= 12) return "call";
+  return "fold";
+}
+
+function estimatedFacingFourBetAction(classLabel, context) {
+  const { high, low, pair, suited } = classShape(classLabel);
+  const veryLarge = Number(context.fourBetBb ?? 35) >= 40;
+  if (classLabel === "AA") return "raise";
+  if (["KK", "QQ", "AKs", "AKo"].includes(classLabel)) return "call";
+  if (!veryLarge && ["JJ", "AQs"].includes(classLabel)) return "call";
+  if (pair && high >= (veryLarge ? 12 : 11)) return "call";
+  if (!veryLarge && suited && high === 14 && low >= 12) return "call";
+  return "fold";
+}
+
 /**
  * Deterministic novice action rule. There is deliberately no mixed strategy:
  * for a given exact combo and public state this fish archetype takes one action.
@@ -224,6 +293,12 @@ export function fishActionForCombo(combo, context = {}) {
   const type = context.type;
 
   if (type === "preflop-unopened") return actionUnopened(combo.classLabel);
+  if (type === "sixmax-unopened" || type === "sixmax-after-limp") {
+    return estimatedUnopenedAction(combo.classLabel, context);
+  }
+  if (type === "sixmax-vs-open") return estimatedFacingOpenAction(combo.classLabel, context);
+  if (type === "preflop-vs-threebet") return estimatedFacingThreeBetAction(combo.classLabel, context);
+  if (type === "preflop-vs-fourbet") return estimatedFacingFourBetAction(combo.classLabel, context);
 
   if (type === "preflop-vs-open") {
     const openBb = clamp(Number(context.openBb ?? 3.3), 1.5, 8);
