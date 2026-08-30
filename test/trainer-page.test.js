@@ -27,6 +27,10 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /id="history-input"/);
   assert.match(trainer, /id="analyze-history"/);
   assert.match(trainer, /id="history-range-grid"/);
+  assert.match(trainer, /id="history-street-tabs"/);
+  assert.match(trainer, /id="history-street-context"/);
+  assert.match(trainer, /role="tablist" aria-label="Estimated range by street"/);
+  assert.match(trainer, /Street tabs let you rewind the same binary range/);
   assert.match(trainer, /Colors show the modeled fish action—fold, call, or raise/);
   assert.match(trainer, /Play 6-handed practice/);
   assert.match(trainer, /Estimate heads-up history/);
@@ -52,6 +56,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /opponentsRespondToThreeBet/);
   assert.match(trainerJs, /opponentsRespondToFourBet/);
   assert.match(trainerJs, /analyzeFishHandHistory/);
+  assert.match(trainerJs, /renderHistoryStreetTabs/);
+  assert.match(trainerJs, /streetSnapshots/);
   assert.match(trainerJs, /rangeCellGradient/);
   assert.match(trainerJs, /Explore this branch/);
   assert.match(trainerJs, /View saved branch/);
@@ -64,6 +70,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerCss, /--range-call/);
   assert.match(trainerCss, /--range-raise/);
   assert.match(trainerCss, /\.analyzer-panel/);
+  assert.match(trainerCss, /\.history-street-tabs/);
+  assert.match(trainerCss, /\.history-street-tab\[aria-selected="true"\]/);
   assert.match(trainerCss, /\.fish-range-cell\.excluded/);
   assert.match(trainerCss, /\.branch-trail/);
   assert.match(trainerCss, /\.response-explorer/);

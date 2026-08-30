@@ -7,6 +7,7 @@ import {
 } from "./fish-model.js";
 
 const STREET_COUNTS = Object.freeze({ flop: 3, turn: 4, river: 5 });
+const STREET_ORDER = Object.freeze(["preflop", "flop", "turn", "river"]);
 const HERO_ALIASES = Object.freeze(["hero", "me", "you", "btn"]);
 const FISH_ALIASES = Object.freeze(["fish", "villain", "opponent", "bb"]);
 
@@ -81,15 +82,19 @@ function observeRange(state, context, action, line, warnings) {
       [...state.heroCards, ...state.board],
     );
     state.lastFishAction = action;
-    state.events.push({
+    state.streetLastFishAction = action;
+    const event = {
       street: state.street,
       action,
       text: line,
       before,
       after: state.range.length,
-    });
+    };
+    state.events.push(event);
+    return event;
   } catch (error) {
     warnings.push(`${line}: ${error.message} The prior range was kept instead of inventing combos.`);
+    return null;
   }
 }
 
@@ -123,24 +128,48 @@ export function analyzeFishHandHistory(raw = {}) {
     openAmount: null,
     pendingHeroBet: null,
     lastFishAction: null,
+    streetLastFishAction: null,
   };
+  const streetSnapshots = [];
+
+  const captureStreetSnapshot = (event = null) => {
+    const snapshot = {
+      street: state.street,
+      board: [...state.board],
+      pot: state.pot,
+      range: [...state.range],
+      summary: summarizeFishRange(state.range, state.board),
+      lastFishAction: state.streetLastFishAction,
+      checkpoint: event?.text ?? "Starting unblocked range",
+      eventCount: state.events.length,
+    };
+    const existingIndex = streetSnapshots.findIndex((entry) => entry.street === state.street);
+    if (existingIndex === -1) streetSnapshots.push(snapshot);
+    else streetSnapshots[existingIndex] = snapshot;
+  };
+
+  captureStreetSnapshot();
 
   for (const line of lines) {
     const nextStreet = streetForLine(line);
     if (nextStreet) {
+      const before = state.range.length;
       state.street = nextStreet;
       state.board = boardFromStreetLine(line, state.board, nextStreet);
       state.range = filterFishRange(state.range, [...heroCards, ...state.board]);
       state.heroCommitted = 0;
       state.fishCommitted = 0;
       state.pendingHeroBet = null;
-      state.events.push({
+      state.streetLastFishAction = null;
+      const event = {
         street: nextStreet,
         action: "board",
         text: `${nextStreet[0].toUpperCase()}${nextStreet.slice(1)} ${state.board.map(cardToString).join(" ")}`,
-        before: state.range.length,
+        before,
         after: state.range.length,
-      });
+      };
+      state.events.push(event);
+      captureStreetSnapshot(event);
       continue;
     }
 
@@ -168,7 +197,7 @@ export function analyzeFishHandHistory(raw = {}) {
           warnings.push(`${line}: no earlier hero raise amount was recognized.`);
           continue;
         }
-        observeRange(
+        const event = observeRange(
           state,
           { type: "preflop-vs-open", openBb: state.openAmount / bigBlind },
           action,
@@ -177,6 +206,7 @@ export function analyzeFishHandHistory(raw = {}) {
         );
         if (action === "call") commitTo(state, "fish", state.heroCommitted);
         if (action === "raise") commitTo(state, "fish", amount ?? state.openAmount * 3.3);
+        if (event) captureStreetSnapshot(event);
       }
       continue;
     }
@@ -204,17 +234,19 @@ export function analyzeFishHandHistory(raw = {}) {
     }
 
     if (action === "check" && !state.pendingHeroBet) {
-      observeRange(state, { type: "postflop-first", board: state.board }, "check", line, warnings);
+      const event = observeRange(state, { type: "postflop-first", board: state.board }, "check", line, warnings);
+      if (event) captureStreetSnapshot(event);
       continue;
     }
     if (action === "bet" && !state.pendingHeroBet) {
-      observeRange(state, { type: "postflop-first", board: state.board }, "bet", line, warnings);
+      const event = observeRange(state, { type: "postflop-first", board: state.board }, "bet", line, warnings);
       if (amount !== null) commit(state, "fish", amount);
       else warnings.push(`${line}: the range was filtered, but no bet amount was available for pot tracking.`);
+      if (event) captureStreetSnapshot(event);
       continue;
     }
     if (state.pendingHeroBet?.type === "bet" && ["fold", "call", "raise"].includes(action)) {
-      observeRange(
+      const event = observeRange(
         state,
         { type: "postflop-vs-bet", board: state.board, betFraction: state.pendingHeroBet.fraction },
         action,
@@ -224,12 +256,14 @@ export function analyzeFishHandHistory(raw = {}) {
       if (action === "call") commitTo(state, "fish", state.heroCommitted);
       if (action === "raise") commitTo(state, "fish", amount ?? state.heroCommitted * 3);
       state.pendingHeroBet = null;
+      if (event) captureStreetSnapshot(event);
       continue;
     }
     if (state.pendingHeroBet?.type === "raise" && ["fold", "call"].includes(action)) {
-      observeRange(state, { type: "postflop-vs-raise", board: state.board }, action, line, warnings);
+      const event = observeRange(state, { type: "postflop-vs-raise", board: state.board }, action, line, warnings);
       if (action === "call") commitTo(state, "fish", state.heroCommitted);
       state.pendingHeroBet = null;
+      if (event) captureStreetSnapshot(event);
       continue;
     }
 
@@ -250,5 +284,7 @@ export function analyzeFishHandHistory(raw = {}) {
     events: state.events,
     warnings,
     lastFishAction: state.lastFishAction,
+    streetSnapshots: streetSnapshots
+      .sort((left, right) => STREET_ORDER.indexOf(left.street) - STREET_ORDER.indexOf(right.street)),
   };
 }
