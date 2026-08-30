@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#07111f" />
     <meta
       name="description"
-      content="Beat Fish is an interactive six-handed live low-stakes poker trainer with independent exact ranges from preflop through river."
+      content="Beat Fish is an interactive 150bb six-handed poker trainer against independent online loose-passive ranges from preflop through river."
     />
     <title>Beat Fish · Poker Solver</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -34,18 +34,18 @@
     <main class="trainer-shell shell">
       <section class="trainer-intro">
         <div>
-          <div class="eyebrow">Live exploit trainer</div>
+          <div class="eyebrow">Online exploit trainer</div>
           <h1>Beat Fish</h1>
           <p>
-            Practice six-handed $1/$2/$3 spots against five basic loose-passive opponents. Early seats can fold,
+            Practice 150bb six-handed $1/$2/$3 spots against five basic online loose-passive opponents. Early seats can fold,
             limp, open-raise, call, or 3-bet when the action allows it, and the curated hands favor contested
             limped and raised pots over routine open-and-everyone-folds drills.
           </p>
         </div>
         <div class="profile-note">
           <strong>Modeled table</strong>
-          <span>Five independent recreational-player ranges · every legal early-seat action · sticky pairs and draws · value-heavy raises</span>
-          <small>Matching preflop nodes use the repository's GTO-estimated six-max positional lookup. Cold-call, limp, sizing, and postflop multiway adjustments use disclosed estimates—not a claimed exact multiway solve.</small>
+          <span>Five independent online recreational-player ranges · high participation, low aggression · sticky calls · premium-heavy reraises</span>
+          <small>Opponent ranges never use solver charts: exact hands follow deterministic fish rules, including no TT/99 4-bets. Hero advice uses the repository's 150bb six-max lookup where a matching node exists, then applies disclosed best-response estimates for the fish range, sizing, and multiway play—not a claimed exact multiway solve.</small>
         </div>
       </section>
 
@@ -60,7 +60,7 @@
           <div class="table-head">
             <div>
               <span class="street-pill" id="street-pill">Preflop</span>
-              <span class="spot-label" id="spot-label">6-handed BTN practice · 100bb</span>
+              <span class="spot-label" id="spot-label">6-handed BTN practice · 150bb</span>
             </div>
             <div class="pot-display"><small>Pot</small><strong id="pot-label">$6</strong></div>
           </div>
@@ -76,7 +76,7 @@
             </div>
 
             <div class="seat seat-hero">
-              <div class="seat-label"><strong>You · BTN</strong><span id="hero-stack">$300</span></div>
+              <div class="seat-label"><strong>You · BTN</strong><span id="hero-stack">$450</span></div>
               <div class="card-row" id="hero-cards" aria-label="Your hole cards"></div>
               <div class="seat-action" id="hero-status">Decision pending</div>
             </div>
@@ -102,7 +102,7 @@
           <div class="question-block">
             <div class="section-kicker" id="question-kicker">Your decision</div>
             <h2 id="question-title">What is your preflop plan?</h2>
-            <p id="question-copy">Choose the action you would actually take before revealing any opponent range.</p>
+            <p id="question-copy">Choose any action to see exactly why it is best, defensible, or mistaken before exploring that branch.</p>
             <div class="decision-basis" id="decision-basis">
               <strong id="decision-basis-title">Recommendation basis</strong>
               <p id="decision-basis-copy"></p>

@@ -34,8 +34,10 @@ test("six-handed practice deals five distinct opponents and preserves real blind
   assert.ok([1, 2].includes(early.filter((opponent) => !opponent.folded).length));
   assert.ok(early.some((opponent) => opponent.folded));
   assert.equal(scenario.heroCommitted, 1);
+  assert.equal(scenario.heroStack, 449);
   assert.equal(scenario.opponents.find((opponent) => opponent.id === "sb").committed, 2);
   assert.equal(scenario.opponents.find((opponent) => opponent.id === "bb").committed, 3);
+  assert.ok(scenario.opponents.every((opponent) => opponent.stack + opponent.committed === 450));
   assert.equal(scenario.startingPot, 6 + scenario.limperCount * 3);
   assert.ok(scenario.opponents.every((opponent) => opponent.range.every((combo) => !("probability" in combo))));
 });
@@ -71,7 +73,7 @@ test("both isolation sizings create a genuinely multiway flop without curated pr
     heroCards,
   );
   assert.ok(smallResponses.call.length > largeResponses.call.length);
-  assert.ok(smallResponses.fold.length < largeResponses.fold.length);
+  assert.ok((smallResponses.fold?.length ?? 0) < (largeResponses.fold?.length ?? 0));
 });
 
 test("raised-pot practice includes an early open, cold call, and position-aware squeeze responses", () => {
@@ -117,7 +119,7 @@ test("raised-pot practice includes an early open, cold call, and position-aware 
     threeBetBb: scenario.largeTarget / 3,
   }, heroCards);
   assert.ok(smallResponses.call.length > largeResponses.call.length);
-  assert.ok(smallResponses.fold.length < largeResponses.fold.length);
+  assert.ok((smallResponses.fold?.length ?? 0) < (largeResponses.fold?.length ?? 0));
 });
 
 test("3-bet practice realizes an early re-raise and keeps both BTN 4-bet sizes multiway", () => {

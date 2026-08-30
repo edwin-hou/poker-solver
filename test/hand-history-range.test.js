@@ -14,7 +14,7 @@ test("BTN six-max lookup folds 94o and opens premiums", () => {
     preflopSpot: "rfi",
     heroPosition: "BTN",
     villainPosition: "BB",
-    stack: 100,
+    stack: 150,
     openSize: 10 / 3,
   };
   assert.deepEqual(preflopLookupStrategyForClass(config, "94o").strategy, [1, 0]);

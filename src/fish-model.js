@@ -1,5 +1,5 @@
 /**
- * Transparent loose-passive live $1/$2/$3 population model used by Beat Fish.
+ * Transparent loose-passive online population model used by Beat Fish.
  *
  * This is deliberately a training archetype, not solver output and not a claim
  * about every low-stakes player. The key contract is easy to reason about:
@@ -16,16 +16,17 @@ import {
   suitIndex,
 } from "./cards.js";
 import { expandRange } from "./range.js";
-import { preflopLookupStrategyForClass } from "./preflop-lookup.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "live-123-basic-fish-v2",
-  label: "Basic loose-passive live $1/$2/$3 fish",
+  id: "online-loose-passive-fish-v3",
+  label: "Basic loose-passive online fish",
   description:
-    "Understands the rules and obvious hand strength, but has no balanced/GTO range construction: enters too wide, calls too much, defaults to check/call, chases obvious draws, and gets value-heavy when raising.",
+    "Understands the rules and obvious hand strength, but has no balanced/GTO range construction: enters too wide, calls too much, defaults to check/call, chases obvious draws, and reraises only a visibly premium-heavy range.",
   tendencies: Object.freeze([
-    "Enters too many pots and calls opens too wide",
+    "Shows a high participation rate with much less raising",
+    "Enters too many pots and calls opens or isolation raises too wide",
     "Rarely 3-bets without an obvious premium",
+    "Never turns TT or 99 into a 4-bet",
     "Checks and calls medium-strength hands",
     "Chases obvious flush and straight draws too often",
     "Raises strong made hands far more often than bluffs",
@@ -207,87 +208,65 @@ function callsOpen(classLabel, openBb) {
 }
 
 function actionUnopened(classLabel) {
+  return onlineFishUnopenedAction(classLabel, { position: "CO", type: "sixmax-unopened" });
+}
+
+const OBVIOUS_OPEN_RAISES = Object.freeze({
+  UTG: new Set(["AA", "KK", "QQ", "JJ", "AKs", "AKo", "AQs", "AQo", "KQs"]),
+  HJ: new Set(["AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"]),
+  CO: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs"]),
+  BTN: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "KQs", "KQo", "KJs", "QJs", "JTs"]),
+  SB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs", "JTs"]),
+  BB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs", "JTs"]),
+});
+
+function loosePassiveEntry(classLabel, position, afterLimp) {
   const { high, low, pair, suited, gap } = classShape(classLabel);
-  if (["AA", "KK", "QQ", "JJ", "AKs", "AKo", "AQs", "AQo", "KQs"].includes(classLabel)) {
-    return "raise";
-  }
-  if (pair) return "limp";
-  if (suited && (high === 14 || (high >= 10 && low >= 6) || (gap <= 1 && low >= 4))) return "limp";
-  if (!suited && ((high === 14 && low >= 8) || (high >= 11 && low >= 10))) return "limp";
-  return "fold";
+  const later = ["CO", "BTN", "SB", "BB"].includes(position);
+  if (pair) return true;
+  if (suited && high === 14) return true;
+  if (!suited && high === 14 && low >= (later || afterLimp ? 5 : 8)) return true;
+  if (suited && high === 13 && low >= (later || afterLimp ? 4 : 7)) return true;
+  if (suited && high === 12 && low >= (later || afterLimp ? 6 : 8)) return true;
+  if (suited && high === 11 && low >= (later || afterLimp ? 6 : 8)) return true;
+  if (suited && high === 10 && low >= (later || afterLimp ? 6 : 8)) return true;
+  if (suited && gap <= (afterLimp ? 2 : 1) && low >= (later || afterLimp ? 4 : 5)) return true;
+  if (!suited && high === 13 && low >= (later || afterLimp ? 9 : 10)) return true;
+  if (!suited && high === 12 && low >= (later || afterLimp ? 9 : 10)) return true;
+  if (!suited && high === 11 && low >= 9) return true;
+  if (!suited && high === 10 && low >= 9 && (later || afterLimp)) return true;
+  return false;
 }
 
-function lookupStrategy(classLabel, config) {
-  return preflopLookupStrategyForClass({
-    stack: 100,
-    openSize: 3,
-    ...config,
-  }, classLabel).strategy;
-}
-
-function estimatedUnopenedAction(classLabel, context) {
+function onlineFishUnopenedAction(classLabel, context) {
   const position = context.position ?? "CO";
-  const [foldFrequency, openFrequency] = lookupStrategy(classLabel, {
-    preflopSpot: "rfi",
-    heroPosition: position,
-    villainPosition: "BB",
-    openSize: Number(context.openBb ?? 3),
-  });
-  const strength = preflopHandStrength(classLabel);
   const afterLimp = context.type === "sixmax-after-limp";
-
-  // Non-SB equilibrium charts normally use raise-or-fold. The recreational
-  // profile turns the lower part of that solver-estimated entering range into
-  // limps, while keeping the strongest opens as raises.
-  if (openFrequency > foldFrequency && strength >= (afterLimp ? 0.57 : 0.61)) return "raise";
-  if (openFrequency > 0 || (afterLimp && strength >= 0.36)) return "limp";
-  return "fold";
+  const obviousRaises = OBVIOUS_OPEN_RAISES[position] ?? OBVIOUS_OPEN_RAISES.CO;
+  if (obviousRaises.has(classLabel)) return "raise";
+  return loosePassiveEntry(classLabel, position, afterLimp) ? "limp" : "fold";
 }
 
-function estimatedFacingOpenAction(classLabel, context) {
-  const [foldFrequency, callFrequency, threeBetFrequency] = lookupStrategy(classLabel, {
-    preflopSpot: "vs-open",
-    heroPosition: context.position ?? "CO",
-    villainPosition: context.openerPosition ?? "UTG",
-    openSize: Number(context.openBb ?? 3),
-  });
-  if (threeBetFrequency > Math.max(foldFrequency, callFrequency)) return "raise";
-  if (callFrequency > foldFrequency || callFrequency + threeBetFrequency > foldFrequency) return "call";
-  return "fold";
+function onlineFishFacingOpenAction(classLabel, context) {
+  // This archetype does not find light or balanced 3-bets. It reraises only
+  // hands whose raw strength is obvious, then calls too much underneath them.
+  if (isPremiumThreeBet(classLabel)) return "raise";
+  return callsOpen(classLabel, Number(context.openBb ?? 4)) ? "call" : "fold";
 }
 
-function estimatedFacingThreeBetAction(classLabel, context) {
-  const [foldFrequency, callFrequency, fourBetFrequency] = lookupStrategy(classLabel, {
-    preflopSpot: "vs-3bet",
-    heroPosition: context.position ?? "BTN",
-    villainPosition: context.threeBettorPosition ?? "BTN",
-  });
-  const { high, low, pair, suited } = classShape(classLabel);
+function onlineFishFacingThreeBetAction(classLabel, context) {
   const veryLarge = Number(context.threeBetBb ?? 16) >= 20;
-
-  if (["AA", "KK", "AKs"].includes(classLabel)) return "raise";
-  if (fourBetFrequency > Math.max(foldFrequency, callFrequency)) return "raise";
-  if (veryLarge) {
-    if (pair && high >= 8) return "call";
-    if (high === 14 && (low >= 11 || (suited && low >= 10))) return "call";
-    if (suited && high === 13 && low >= 12) return "call";
-    return "fold";
-  }
-  if (callFrequency > foldFrequency) return "call";
-  if (pair && high >= 8) return "call";
-  if (high === 14 && (low >= 11 || (suited && low >= 11))) return "call";
-  if (suited && high === 13 && low >= 12) return "call";
+  if (["AA", "KK"].includes(classLabel)) return "raise";
+  if (["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
+  if (!veryLarge && ["JJ", "TT", "99", "AQs", "AQo", "AJs", "KQs"].includes(classLabel)) return "call";
+  if (veryLarge && ["JJ", "TT", "AQs"].includes(classLabel)) return "call";
   return "fold";
 }
 
-function estimatedFacingFourBetAction(classLabel, context) {
-  const { high, low, pair, suited } = classShape(classLabel);
+function onlineFishFacingFourBetAction(classLabel, context) {
   const veryLarge = Number(context.fourBetBb ?? 35) >= 40;
-  if (classLabel === "AA") return "raise";
-  if (["KK", "QQ", "AKs", "AKo"].includes(classLabel)) return "call";
+  if (["AA", "KK"].includes(classLabel)) return "raise";
+  if (["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
   if (!veryLarge && ["JJ", "AQs"].includes(classLabel)) return "call";
-  if (pair && high >= (veryLarge ? 12 : 11)) return "call";
-  if (!veryLarge && suited && high === 14 && low >= 12) return "call";
   return "fold";
 }
 
@@ -300,11 +279,11 @@ export function fishActionForCombo(combo, context = {}) {
 
   if (type === "preflop-unopened") return actionUnopened(combo.classLabel);
   if (type === "sixmax-unopened" || type === "sixmax-after-limp") {
-    return estimatedUnopenedAction(combo.classLabel, context);
+    return onlineFishUnopenedAction(combo.classLabel, context);
   }
-  if (type === "sixmax-vs-open") return estimatedFacingOpenAction(combo.classLabel, context);
-  if (type === "preflop-vs-threebet") return estimatedFacingThreeBetAction(combo.classLabel, context);
-  if (type === "preflop-vs-fourbet") return estimatedFacingFourBetAction(combo.classLabel, context);
+  if (type === "sixmax-vs-open") return onlineFishFacingOpenAction(combo.classLabel, context);
+  if (type === "preflop-vs-threebet") return onlineFishFacingThreeBetAction(combo.classLabel, context);
+  if (type === "preflop-vs-fourbet") return onlineFishFacingFourBetAction(combo.classLabel, context);
 
   if (type === "preflop-vs-open") {
     const openBb = clamp(Number(context.openBb ?? 3.3), 1.5, 8);

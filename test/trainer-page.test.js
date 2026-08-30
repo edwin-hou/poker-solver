@@ -32,6 +32,10 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /Estimate heads-up history/);
   assert.match(trainer, /Heads-up only: it does not model extra players/);
   assert.match(trainer, /not a claimed exact multiway solve/);
+  assert.match(trainer, /Opponent ranges never use solver charts/);
+  assert.match(trainer, /no TT\/99 4-bets/);
+  assert.match(trainer, /150bb/);
+  assert.match(trainer, /\$450/);
   assert.match(trainer, /fold,\s+limp, open-raise, call, or 3-bet/);
   assert.doesNotMatch(trainer, /more likely|posterior/i);
 
@@ -50,6 +54,9 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /rangeCellGradient/);
   assert.match(trainerJs, /Explore this branch/);
   assert.match(trainerJs, /View saved branch/);
+  assert.match(trainerJs, /choiceReasons/);
+  assert.match(trainerJs, /What is wrong with this choice/);
+  assert.match(trainerJs, /stack: 150/);
   assert.doesNotMatch(trainerJs, /reweighted by how often|posterior range/i);
 
   assert.match(trainerCss, /--range-fold/);
@@ -69,6 +76,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(fishModel, /fishRangeContinuingVsOpenSizes/);
   assert.doesNotMatch(fishModel, /fishActionProbabilities/);
   assert.doesNotMatch(fishModel, /\.probability/);
+  assert.doesNotMatch(fishModel, /preflopLookupStrategyForClass/);
+  assert.match(fishModel, /Never turns TT or 99 into a 4-bet/);
 
   assert.match(multiwayPractice, /SIX_HANDED_OPPONENTS/);
   assert.match(multiwayPractice, /limperCount/);
