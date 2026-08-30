@@ -303,6 +303,15 @@ export function partitionFishRange(range, context, blockedCards = []) {
   return partitions;
 }
 
+/** Curate a hidden opponent hand that continues against every listed open. */
+export function fishRangeContinuingVsOpenSizes(range, openBbs = [10 / 3, 5], blockedCards = []) {
+  const unblocked = filterFishRange(range, blockedCards);
+  const continuing = unblocked.filter((entry) => openBbs.every((openBb) =>
+    fishActionForCombo(entry, { type: "preflop-vs-open", openBb }) !== "fold"));
+  if (!continuing.length) throw new Error("No fish combos continue against every requested open size.");
+  return continuing;
+}
+
 /** Pick one hidden exact combo uniformly from the current binary range. */
 export function sampleFishCombo(range, random = Math.random) {
   if (!range.length) throw new Error("Cannot sample from an empty fish range.");

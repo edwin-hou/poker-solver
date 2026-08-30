@@ -1,5 +1,6 @@
 import {
   HAND_CLASSES,
+  analyzeFishHandHistory,
   cardToHtml,
   cardToString,
   cloneFishRange,
@@ -11,12 +12,12 @@ import {
   estimateHeroEquity,
   evaluate7,
   filterFishRange,
-  fishRangeBucketLabels,
+  fishRangeContinuingVsOpenSizes,
   addTrainerTreeNode,
   observeFishAction,
   partitionFishRange,
   postflopHandFeatures,
-  preflopHandStrength,
+  preflopLookupStrategyForClass,
   sampleFishAction,
   sampleFishCombo,
   summarizeFishRange,
@@ -28,10 +29,22 @@ const STARTING_STACK = 300;
 const STARTING_POT = 6;
 const STREET_ORDER = ["preflop", "flop", "turn", "river"];
 const STREET_BOARD_COUNT = { preflop: 0, flop: 3, turn: 4, river: 5 };
-const RANGE_BUCKETS = ["strong", "medium", "draw", "weak"];
+const RANGE_ACTIONS = ["fold", "call", "raise"];
+const RANGE_ACTION_LABELS = Object.freeze({
+  current: "Still possible",
+  fold: "Fold",
+  call: "Call",
+  raise: "Raise",
+  check: "Check",
+  bet: "Bet",
+});
 
 const $ = (selector) => document.querySelector(selector);
 const elements = {
+  modePlay: $("#mode-play"),
+  modeAnalyze: $("#mode-analyze"),
+  playMode: $("#play-mode"),
+  analyzeMode: $("#analyze-mode"),
   streetPill: $("#street-pill"),
   spotLabel: $("#spot-label"),
   potLabel: $("#pot-label"),
@@ -50,6 +63,9 @@ const elements = {
   questionKicker: $("#question-kicker"),
   questionTitle: $("#question-title"),
   questionCopy: $("#question-copy"),
+  decisionBasis: $("#decision-basis"),
+  decisionBasisTitle: $("#decision-basis-title"),
+  decisionBasisCopy: $("#decision-basis-copy"),
   answerOptions: $("#answer-options"),
   feedbackPanel: $("#feedback-panel"),
   feedbackGrade: $("#feedback-grade"),
@@ -76,6 +92,26 @@ const elements = {
   comboDetailTitle: $("#range-combo-detail-title"),
   comboDetailCopy: $("#range-combo-detail-copy"),
   comboDetailList: $("#range-combo-detail-list"),
+  historyHeroCards: $("#history-hero-cards"),
+  historyHeroName: $("#history-hero-name"),
+  historyFishName: $("#history-fish-name"),
+  historyBigBlind: $("#history-big-blind"),
+  historyStartingPot: $("#history-starting-pot"),
+  historyInput: $("#history-input"),
+  analyzeHistory: $("#analyze-history"),
+  historyError: $("#history-error"),
+  historyResult: $("#history-result"),
+  historyStreet: $("#history-street"),
+  historyBoard: $("#history-board"),
+  historyCombos: $("#history-combos"),
+  historyClasses: $("#history-classes"),
+  historyEvents: $("#history-events"),
+  historyWarnings: $("#history-warnings"),
+  historyRangeGrid: $("#history-range-grid"),
+  historyRangeLegend: $("#history-range-legend"),
+  historyComboTitle: $("#history-combo-title"),
+  historyComboCopy: $("#history-combo-copy"),
+  historyComboList: $("#history-combo-list"),
 };
 
 let state = null;
@@ -86,9 +122,19 @@ let historyIndex = 0;
 let rangeVisible = false;
 let rangeView = { momentId: null, choiceId: null, fishAction: null };
 let selectedRangeClass = null;
+let selectedHistoryRangeClass = null;
 
 function formatMoney(value) {
   return `$${Math.max(0, Math.round(value)).toLocaleString("en-US")}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function streetLabel(street) {
@@ -102,6 +148,25 @@ function randomCardPair() {
     [deck[index], deck[chosen]] = [deck[chosen], deck[index]];
   }
   return [deck[0], deck[1]];
+}
+
+function randomTrainerHeroCards() {
+  const seekOpen = Math.random() < 0.85;
+  let cards = randomCardPair();
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const classLabel = comboClass(cards[0], cards[1]);
+    const lookup = preflopLookupStrategyForClass({
+      preflopSpot: "rfi",
+      heroPosition: "BTN",
+      villainPosition: "BB",
+      stack: 100,
+      openSize: 10 / 3,
+    }, classLabel);
+    const isOpen = lookup.strategy[1] > lookup.strategy[0];
+    if (isOpen === seekOpen) return cards;
+    cards = randomCardPair();
+  }
+  return cards;
 }
 
 function cloneActions(actions) {
@@ -199,9 +264,10 @@ function observeFish(context, action, text) {
 }
 
 function startNewHand() {
-  const heroCards = randomCardPair();
+  const heroCards = randomTrainerHeroCards();
   const initialRange = createFishRange({ heroCards });
-  const fishCombo = sampleFishCombo(initialRange);
+  const curatedFishRange = fishRangeContinuingVsOpenSizes(initialRange, [10 / 3, 5], heroCards);
+  const fishCombo = sampleFishCombo(curatedFishRange);
   const runoutDeck = createDeck([...heroCards, ...fishCombo.cards]);
   const runout = [];
   while (runout.length < 5) {
@@ -224,7 +290,7 @@ function startNewHand() {
     rangeEvents: [
       {
         street: "preflop",
-        text: "Before the fish acts, every exact two-card hand not blocked by your hole cards is still possible.",
+        text: "Before the fish acts, every exact two-card hand not blocked by your hole cards is still possible. Most prompts are curated six-max opens, and hidden fish hands come from continuing combos, so explored raises reach a real decision instead of ending in a routine fold.",
       },
     ],
     fishStatus: "Waiting for your action",
@@ -255,19 +321,19 @@ function pushHeroDecision(decision) {
 
 function buildPreflopOpenDecision() {
   const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
-  const strength = preflopHandStrength(classLabel);
-  let recommended = "fold";
-  let reason = `Even against a wide caller, ${classLabel} is too weak to create enough value from an out-of-line open.`;
-  let acceptable = [];
-  if (strength >= 0.76) {
-    recommended = "open15";
-    acceptable = ["open10"];
-    reason = `${classLabel} is strong enough to punish an inelastic calling range. The larger live sizing captures extra value from dominated calls.`;
-  } else if (strength >= 0.30) {
-    recommended = "open10";
-    acceptable = strength >= 0.62 ? ["open15"] : [];
-    reason = `${classLabel} clears the opening threshold against a BB that calls too wide. Use a normal live open and let the fish make the calling mistake.`;
-  }
+  const lookup = preflopLookupStrategyForClass({
+    preflopSpot: "rfi",
+    heroPosition: "BTN",
+    villainPosition: "BB",
+    stack: 100,
+    openSize: 10 / 3,
+  }, classLabel);
+  const [foldFrequency, openFrequency] = lookup.strategy;
+  const recommended = openFrequency > foldFrequency ? "open10" : "fold";
+  const acceptable = openFrequency >= 0.98 ? ["open15"] : [];
+  const reason = recommended === "fold"
+    ? `${classLabel} is a fold in the repository's six-max BTN baseline (${Math.round(foldFrequency * 100)}% fold). Even against the fish, the trainer does not turn an out-of-range hand into an automatic open.`
+    : `${classLabel} opens in the repository's six-max BTN baseline (${Math.round(openFrequency * 100)}% raise). Raise to $10 is the chart-backed default; $15 is shown only as a labeled exploit deviation for the strongest pure opens.`;
   return {
     type: "preflop-open",
     title: `You look down at ${classLabel}. What is your plan?`,
@@ -275,6 +341,10 @@ function buildPreflopOpenDecision() {
     recommended,
     acceptable,
     reason,
+    basis: {
+      title: "Six-max preflop lookup baseline",
+      copy: `${lookup.nodeLabel}. Original deterministic chart approximation; not a licensed equilibrium solve. Recommendation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise.`,
+    },
     options: [
       { id: "fold", label: "Fold", detail: "Give up the button" },
       { id: "open10", label: "Raise to $10", detail: "Standard live open" },
@@ -285,12 +355,20 @@ function buildPreflopOpenDecision() {
 
 function buildVsThreeBetDecision(amountToCall) {
   const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
-  const strength = preflopHandStrength(classLabel);
-  const recommended = strength >= 0.67 ? "call" : "fold";
-  const acceptable = strength >= 0.61 && strength < 0.67 ? ["call"] : [];
+  const lookup = preflopLookupStrategyForClass({
+    preflopSpot: "vs-3bet",
+    heroPosition: "BTN",
+    villainPosition: "BB",
+    stack: 100,
+    openSize: 10 / 3,
+  }, classLabel);
+  const [foldFrequency, callFrequency, fourBetFrequency] = lookup.strategy;
+  const continueFrequency = callFrequency + fourBetFrequency;
+  const recommended = continueFrequency > foldFrequency ? "call" : "fold";
+  const acceptable = [];
   const reason = recommended === "call"
-    ? `This fish only 3-bets an obvious premium set of hands, but ${classLabel} retains enough strength to continue in position for ${formatMoney(amountToCall)}.`
-    : `A basic fish's rare 3-bet is extremely face-up here. ${classLabel} does not need to defend just because you opened it.`;
+    ? `${classLabel} continues often enough in the six-max baseline (${Math.round(continueFrequency * 100)}% call-or-4-bet). This simplified fish branch groups the baseline's aggressive continues into call rather than pretending to solve a new 4-bet tree.`
+    : `A basic fish's rare 3-bet is extremely face-up, and the six-max baseline already folds ${classLabel} ${Math.round(foldFrequency * 100)}% of the time.`;
   return {
     type: "preflop-vs-3bet",
     title: `Fish 3-bets. Continue with ${classLabel}?`,
@@ -298,6 +376,10 @@ function buildVsThreeBetDecision(amountToCall) {
     recommended,
     acceptable,
     reason,
+    basis: {
+      title: "Six-max preflop lookup + fish adjustment",
+      copy: `${lookup.nodeLabel}. Approximate baseline: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet. This trainer's two-action branch collapses continues to call and is labeled as an exploit simplification.`,
+    },
     options: [
       { id: "fold", label: "Fold", detail: "Respect the value-heavy 3-bet" },
       { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Take position to the flop" },
@@ -338,6 +420,10 @@ function buildAfterCheckDecision() {
     acceptable,
     reason,
     equity,
+    basis: {
+      title: "Exact range equity + exploit rule",
+      copy: "Equity is calculated against the exact binary combos surviving this branch. Bet/check thresholds are transparent loose-passive exploit heuristics, not a six-player postflop equilibrium solve.",
+    },
     options: [
       { id: "check", label: "Check back", detail: "Realize equity and keep the pot controlled" },
       { id: "bet33", label: "Bet ⅓ pot", detail: "Thin value / cheap pressure" },
@@ -372,6 +458,10 @@ function buildVsDonkDecision(amountToCall) {
     reason,
     equity,
     amountToCall,
+    basis: {
+      title: "Exact pot odds + range equity",
+      copy: "The price and equity use the current pot and exact modeled lead range. Raise/call safety margins are exploit assumptions for this fish archetype, not multiway GTO output.",
+    },
     options: [
       { id: "fold", label: "Fold", detail: "Do not pay off a value-heavy line" },
       { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Keep worse value and draws in" },
@@ -397,6 +487,10 @@ function buildVsRaiseDecision(amountToCall) {
     reason,
     equity,
     amountToCall,
+    basis: {
+      title: "Exact pot odds + value-heavy raise model",
+      copy: "The range and price are exact for this branch; the extra fold margin reflects the modeled fish's no-bluff raise rule. It is not presented as a six-player postflop solve.",
+    },
     options: [
       { id: "fold", label: "Fold", detail: "Exploit the face-up raise" },
       { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Continue only with enough range equity" },
@@ -710,13 +804,13 @@ function classComboCount(label) {
   return label.endsWith("s") ? 4 : 12;
 }
 
-function rangeCellGradient(buckets) {
-  const total = RANGE_BUCKETS.reduce((sum, key) => sum + (buckets[key] ?? 0), 0);
+function rangeCellGradient(actionCounts, actions) {
+  const total = actions.reduce((sum, key) => sum + (actionCounts[key] ?? 0), 0);
   if (!total) return "";
   let cursor = 0;
   const stops = [];
-  for (const key of RANGE_BUCKETS) {
-    const count = buckets[key] ?? 0;
+  for (const key of actions) {
+    const count = actionCounts[key] ?? 0;
     if (!count) continue;
     const start = cursor;
     cursor += (count / total) * 100;
@@ -725,10 +819,10 @@ function rangeCellGradient(buckets) {
   return `linear-gradient(135deg, ${stops.join(",")})`;
 }
 
-function bucketBreakdown(buckets, labels) {
-  return RANGE_BUCKETS
-    .filter((key) => (buckets[key] ?? 0) > 0)
-    .map((key) => `${labels[key]}: ${buckets[key]}`)
+function actionBreakdown(actionCounts, actions, labels) {
+  return actions
+    .filter((key) => (actionCounts[key] ?? 0) > 0)
+    .map((key) => `${labels[key]}: ${actionCounts[key]}`)
     .join(" · ");
 }
 
@@ -743,13 +837,13 @@ function fishResponseScenarios(moment) {
         choiceId: "open10",
         label: optionLabel("open10"),
         context: { type: "preflop-vs-open", openBb: 10 / 3 },
-        actions: ["fold", "call", "raise"],
+        actions: [...RANGE_ACTIONS],
       },
       {
         choiceId: "open15",
         label: optionLabel("open15"),
         context: { type: "preflop-vs-open", openBb: 5 },
-        actions: ["fold", "call", "raise"],
+        actions: [...RANGE_ACTIONS],
       },
     ];
   }
@@ -760,13 +854,13 @@ function fishResponseScenarios(moment) {
         choiceId: "bet33",
         label: optionLabel("bet33"),
         context: { type: "postflop-vs-bet", board: moment.board, betFraction: 0.33 },
-        actions: ["fold", "call", "raise"],
+        actions: [...RANGE_ACTIONS],
       },
       {
         choiceId: "bet75",
         label: optionLabel("bet75"),
         context: { type: "postflop-vs-bet", board: moment.board, betFraction: 0.75 },
-        actions: ["fold", "call", "raise"],
+        actions: [...RANGE_ACTIONS],
       },
     ];
   }
@@ -794,6 +888,9 @@ function renderResponseExplorer(moment) {
     elements.responseExplorer.hidden = true;
     return {
       range: moment.range,
+      partitions: { current: moment.range },
+      actions: ["current"],
+      labels: RANGE_ACTION_LABELS,
       title: `Fish range · ${streetLabel(moment.street)} · current branch`,
       copy: "Binary range: every exact combo shown here still fits this branch's full action thread.",
     };
@@ -830,6 +927,9 @@ function renderResponseExplorer(moment) {
     elements.responseActionOptions.innerHTML = "";
     return {
       range: moment.range,
+      partitions: { current: moment.range },
+      actions: ["current"],
+      labels: RANGE_ACTION_LABELS,
       title: `Fish range · ${streetLabel(moment.street)} · current branch`,
       copy: "Every shown combo survived the branch so far. Choose a sizing above to inspect the deterministic response split.",
     };
@@ -860,8 +960,15 @@ function renderResponseExplorer(moment) {
   }
 
   if (!selectedAction) {
+    const labels = Object.fromEntries(selectedScenario.actions.map((action) => [
+      action,
+      fishActionLabel(action, selectedScenario.context),
+    ]));
     return {
       range: moment.range,
+      partitions,
+      actions: selectedScenario.actions,
+      labels,
       title: `Fish range before responding to ${selectedScenario.label}`,
       copy: "This is the exact range reaching the decision. The response counts above are exhaustive and mutually exclusive.",
     };
@@ -869,6 +976,11 @@ function renderResponseExplorer(moment) {
 
   return {
     range: partitions[selectedAction] ?? [],
+    partitions: { [selectedAction]: partitions[selectedAction] ?? [] },
+    actions: [selectedAction],
+    labels: {
+      [selectedAction]: fishActionLabel(selectedAction, selectedScenario.context),
+    },
     title: `Fish ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} range facing ${selectedScenario.label}`,
     copy: `Only exact combos assigned to ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} are shown. There are no mixed actions or probability weights.`,
   };
@@ -898,7 +1010,6 @@ function renderRange(moment) {
   const displayed = renderResponseExplorer(moment);
   const displayedRange = displayed.range;
   const summary = summarizeFishRange(displayedRange, moment.board);
-  const labels = fishRangeBucketLabels(moment.board);
   const flatClasses = HAND_CLASSES.flat();
   elements.rangeTitle.textContent = displayed.title;
   elements.rangeCopy.textContent = displayed.copy;
@@ -910,8 +1021,12 @@ function renderRange(moment) {
       if (!info) {
         return `<button type="button" class="fish-range-cell excluded" data-range-class="${label}" title="${label}: not in this range"><strong>${label}</strong><small>—</small></button>`;
       }
-      const gradient = rangeCellGradient(info.buckets);
-      const breakdown = bucketBreakdown(info.buckets, labels);
+      const actionCounts = Object.fromEntries(displayed.actions.map((action) => [
+        action,
+        (displayed.partitions[action] ?? []).filter((entry) => entry.classLabel === label).length,
+      ]));
+      const gradient = rangeCellGradient(actionCounts, displayed.actions);
+      const breakdown = actionBreakdown(actionCounts, displayed.actions, displayed.labels);
       const exactCombos = displayedRange.filter((entry) => entry.classLabel === label).map((entry) => entry.display).join(", ");
       return `<button type="button" class="fish-range-cell present${selectedRangeClass === label ? " selected" : ""}" data-range-class="${label}" style="background:${gradient}" title="${label}: ${info.count}/${total} exact combos · ${breakdown} · ${exactCombos}"><strong>${label}</strong><small>${info.count}/${total}</small></button>`;
     })
@@ -923,13 +1038,13 @@ function renderRange(moment) {
     });
   }
 
-  elements.rangeLegend.innerHTML = RANGE_BUCKETS
-    .map((key) => `<span><i class="range-swatch bucket-${key}"></i>${labels[key]}</span>`)
+  elements.rangeLegend.innerHTML = displayed.actions
+    .map((key) => `<span><i class="range-swatch action-${key}"></i>${displayed.labels[key]}</span>`)
     .join("");
   elements.rangeCombos.textContent = summary.comboCount.toLocaleString("en-US");
   elements.rangeEffective.textContent = summary.classCount.toLocaleString("en-US");
-  elements.rangeTop.innerHTML = RANGE_BUCKETS
-    .map((key) => `<span class="top-class"><i class="range-swatch bucket-${key}"></i><b>${labels[key]}</b>${summary.bucketCounts[key].toLocaleString("en-US")} combos</span>`)
+  elements.rangeTop.innerHTML = displayed.actions
+    .map((key) => `<span class="top-class"><i class="range-swatch action-${key}"></i><b>${displayed.labels[key]}</b>${(displayed.partitions[key]?.length ?? 0).toLocaleString("en-US")} combos</span>`)
     .join("");
   elements.rangeThread.innerHTML = moment.rangeEvents
     .map((entry) => `<li><strong>${streetLabel(entry.street)}:</strong> ${entry.text.replace(/^\w+:\s*/, "")}</li>`)
@@ -959,6 +1074,13 @@ function renderDecision(moment) {
   elements.questionTitle.textContent = moment.title;
   elements.questionCopy.textContent = moment.copy;
   elements.answerOptions.innerHTML = "";
+  if (moment.decision?.basis) {
+    elements.decisionBasis.hidden = false;
+    elements.decisionBasisTitle.textContent = moment.decision.basis.title;
+    elements.decisionBasisCopy.textContent = moment.decision.basis.copy;
+  } else {
+    elements.decisionBasis.hidden = true;
+  }
 
   if (moment.kind === "decision") {
     for (const option of moment.decision.options) {
@@ -1055,6 +1177,104 @@ function render() {
   }
 }
 
+function historyActionLabel(action) {
+  return RANGE_ACTION_LABELS[action] ?? streetLabel(action);
+}
+
+function renderHistoryComboDetail(range) {
+  const combos = selectedHistoryRangeClass
+    ? range.filter((entry) => entry.classLabel === selectedHistoryRangeClass)
+    : [];
+  if (!selectedHistoryRangeClass) {
+    elements.historyComboTitle.textContent = "Select a hand class";
+    elements.historyComboCopy.textContent = "Click any colored cell to list the exact suit combinations still in the estimated range.";
+    elements.historyComboList.innerHTML = "";
+    return;
+  }
+  elements.historyComboTitle.textContent = `${selectedHistoryRangeClass} · ${combos.length} exact combo${combos.length === 1 ? "" : "s"}`;
+  elements.historyComboCopy.textContent = combos.length
+    ? "Every listed combination survived the same blocker and action filters from the pasted history."
+    : "No exact combinations from this class remain.";
+  elements.historyComboList.innerHTML = combos
+    .map((entry) => `<span class="exact-combo">${entry.display}</span>`)
+    .join("");
+}
+
+function renderHistoryAnalysis(result) {
+  selectedHistoryRangeClass = null;
+  elements.historyResult.hidden = false;
+  elements.historyStreet.textContent = streetLabel(result.street);
+  elements.historyBoard.textContent = result.board.length
+    ? result.board.map(cardToString).join(" ")
+    : "Preflop";
+  elements.historyCombos.textContent = result.summary.comboCount.toLocaleString("en-US");
+  elements.historyClasses.textContent = result.summary.classCount.toLocaleString("en-US");
+  elements.historyEvents.innerHTML = result.events
+    .map((event) => `<li><strong>${streetLabel(event.street)}:</strong> ${escapeHtml(event.text)} <small>${event.before} → ${event.after} combos</small></li>`)
+    .join("");
+  elements.historyWarnings.hidden = result.warnings.length === 0;
+  elements.historyWarnings.innerHTML = result.warnings
+    .map((warning) => `<li>${escapeHtml(warning)}</li>`)
+    .join("");
+
+  const action = result.lastFishAction ?? "current";
+  const actions = [action];
+  const labels = { [action]: historyActionLabel(action) };
+  const flatClasses = HAND_CLASSES.flat();
+  elements.historyRangeGrid.innerHTML = flatClasses
+    .map((label) => {
+      const combos = result.range.filter((entry) => entry.classLabel === label);
+      const total = classComboCount(label);
+      if (!combos.length) {
+        return `<button type="button" class="fish-range-cell excluded" data-history-range-class="${label}" title="${label}: not in this estimated range"><strong>${label}</strong><small>—</small></button>`;
+      }
+      const gradient = rangeCellGradient({ [action]: combos.length }, actions);
+      return `<button type="button" class="fish-range-cell present" data-history-range-class="${label}" style="background:${gradient}" title="${label}: ${combos.length}/${total} exact combos · ${labels[action]}"><strong>${label}</strong><small>${combos.length}/${total}</small></button>`;
+    })
+    .join("");
+  for (const button of elements.historyRangeGrid.querySelectorAll("[data-history-range-class]")) {
+    button.addEventListener("click", () => {
+      selectedHistoryRangeClass = button.dataset.historyRangeClass;
+      for (const cell of elements.historyRangeGrid.querySelectorAll("[data-history-range-class]")) {
+        cell.classList.toggle("selected", cell === button);
+      }
+      renderHistoryComboDetail(result.range);
+    });
+  }
+  elements.historyRangeLegend.innerHTML = `<span><i class="range-swatch action-${action}"></i>${labels[action]} on the last recognized fish action</span>`;
+  renderHistoryComboDetail(result.range);
+}
+
+function analyzeEnteredHistory() {
+  elements.historyError.hidden = true;
+  elements.historyError.textContent = "";
+  try {
+    const result = analyzeFishHandHistory({
+      heroCards: elements.historyHeroCards.value,
+      heroName: elements.historyHeroName.value,
+      fishName: elements.historyFishName.value,
+      bigBlind: elements.historyBigBlind.value,
+      startingPot: elements.historyStartingPot.value,
+      history: elements.historyInput.value,
+    });
+    renderHistoryAnalysis(result);
+  } catch (error) {
+    elements.historyResult.hidden = true;
+    elements.historyError.hidden = false;
+    elements.historyError.textContent = error.message;
+  }
+}
+
+function setMode(mode) {
+  const analyze = mode === "analyze";
+  elements.playMode.hidden = analyze;
+  elements.analyzeMode.hidden = !analyze;
+  elements.modePlay.classList.toggle("selected", !analyze);
+  elements.modeAnalyze.classList.toggle("selected", analyze);
+  elements.modePlay.setAttribute("aria-selected", String(!analyze));
+  elements.modeAnalyze.setAttribute("aria-selected", String(analyze));
+}
+
 elements.historyBack.addEventListener("click", () => {
   if (historyIndex > 0) {
     historyIndex -= 1;
@@ -1081,5 +1301,8 @@ elements.hideRange.addEventListener("click", () => {
 });
 
 elements.newHand.addEventListener("click", startNewHand);
+elements.modePlay.addEventListener("click", () => setMode("play"));
+elements.modeAnalyze.addEventListener("click", () => setMode("analyze"));
+elements.analyzeHistory.addEventListener("click", analyzeEnteredHistory);
 
 startNewHand();

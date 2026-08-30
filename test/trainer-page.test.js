@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-test("Pages publishes a branchable Beat Fish trainer with exact response-range exploration", async () => {
+test("Pages publishes a branchable Beat Fish trainer with action ranges and hand-history estimation", async () => {
   const solverIndex = await readFile(new URL("../dist/site/index.html", import.meta.url), "utf8");
   const trainer = await readFile(new URL("../dist/site/trainer.html", import.meta.url), "utf8");
   const trainerJs = await readFile(new URL("../dist/site/trainer.js", import.meta.url), "utf8");
@@ -20,23 +20,30 @@ test("Pages publishes a branchable Beat Fish trainer with exact response-range e
   assert.match(trainer, /id="response-sizing-options"/);
   assert.match(trainer, /id="response-action-options"/);
   assert.match(trainer, /id="range-combo-detail-list"/);
-  assert.match(trainer, /Colors describe the surviving hand type, not probability/);
+  assert.match(trainer, /id="mode-analyze"/);
+  assert.match(trainer, /id="history-input"/);
+  assert.match(trainer, /id="analyze-history"/);
+  assert.match(trainer, /id="history-range-grid"/);
+  assert.match(trainer, /Colors show the modeled fish action—fold, call, or raise/);
+  assert.match(trainer, /not a site-parser, player-specific read, or multiway GTO solve/);
   assert.doesNotMatch(trainer, /more likely|posterior/i);
 
   assert.match(trainerJs, /observeFishAction/);
   assert.match(trainerJs, /partitionFishRange/);
   assert.match(trainerJs, /createTrainerTree/);
   assert.match(trainerJs, /trainerTreeChild/);
-  assert.match(trainerJs, /fishRangeBucketLabels/);
+  assert.match(trainerJs, /preflopLookupStrategyForClass/);
+  assert.match(trainerJs, /fishRangeContinuingVsOpenSizes/);
+  assert.match(trainerJs, /analyzeFishHandHistory/);
   assert.match(trainerJs, /rangeCellGradient/);
   assert.match(trainerJs, /Explore this branch/);
   assert.match(trainerJs, /View saved branch/);
   assert.doesNotMatch(trainerJs, /reweighted by how often|posterior range/i);
 
-  assert.match(trainerCss, /--range-strong/);
-  assert.match(trainerCss, /--range-medium/);
-  assert.match(trainerCss, /--range-draw/);
-  assert.match(trainerCss, /--range-weak/);
+  assert.match(trainerCss, /--range-fold/);
+  assert.match(trainerCss, /--range-call/);
+  assert.match(trainerCss, /--range-raise/);
+  assert.match(trainerCss, /\.analyzer-panel/);
   assert.match(trainerCss, /\.fish-range-cell\.excluded/);
   assert.match(trainerCss, /\.branch-trail/);
   assert.match(trainerCss, /\.response-explorer/);
@@ -45,6 +52,7 @@ test("Pages publishes a branchable Beat Fish trainer with exact response-range e
   assert.match(fishModel, /Deterministic novice action rule/);
   assert.match(fishModel, /fishActionForCombo/);
   assert.match(fishModel, /partitionFishRange/);
+  assert.match(fishModel, /fishRangeContinuingVsOpenSizes/);
   assert.doesNotMatch(fishModel, /fishActionProbabilities/);
   assert.doesNotMatch(fishModel, /\.probability/);
 });

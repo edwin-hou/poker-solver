@@ -8,7 +8,7 @@
  */
 
 import { handsOverlap } from "./cards.js";
-import { HAND_CLASSES, expandRange, summarizeRange } from "./range.js";
+import { HAND_CLASSES, expandRange, normalizeClassLabel, summarizeRange } from "./range.js";
 import { CancelledSolveError, serializeRangeSummary } from "./solver-support.js";
 
 export const PREFLOP_POSITIONS = Object.freeze(["UTG", "HJ", "CO", "BTN", "SB", "BB"]);
@@ -310,6 +310,22 @@ function actionLabels(config) {
   }
   if (config.preflopSpot === "vs-open") return ["Fold", "Call", "3-bet"];
   return ["Fold", "Call", "4-bet"];
+}
+
+/** Return the chart row for one 169-class hand without expanding all 1,326 combos. */
+export function preflopLookupStrategyForClass(rawConfig = {}, classLabel) {
+  const config = validatePreflopLookupConfig(rawConfig);
+  const normalized = normalizeClassLabel(classLabel);
+  const strategy = buildStrategyTable(config).get(normalized);
+  if (!strategy) throw new Error(`Unknown preflop hand class: ${classLabel}`);
+  return {
+    classLabel: normalized,
+    actionLabels: actionLabels(config),
+    strategy: [...strategy],
+    nodeLabel: nodeLabel(config),
+    source: "Approximate six-max positional lookup baseline",
+    exact: false,
+  };
 }
 
 function nodeLabel(config) {
