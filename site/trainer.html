@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#07111f" />
     <meta
       name="description"
-      content="Beat Fish is an interactive live low-stakes poker trainer with a consistent basic loose-passive opponent range from preflop through river."
+      content="Beat Fish is an interactive six-handed live low-stakes poker trainer with independent exact ranges from preflop through river."
     />
     <title>Beat Fish · Poker Solver</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -37,20 +37,20 @@
           <div class="eyebrow">Live exploit trainer</div>
           <h1>Beat Fish</h1>
           <p>
-            Play a full hand against a basic loose-passive $1/$2/$3 player. Make the decision first,
-            then branch into every alternative line and inspect the literal set of hands that takes each action.
+            Practice six-handed $1/$2/$3 spots against five basic loose-passive opponents. Some fold or limp preflop,
+            multiple players can reach the flop, and every saved branch keeps each seat's literal range intact.
           </p>
         </div>
         <div class="profile-note">
-          <strong>Modeled opponent</strong>
-          <span>Knows the rules · calls too wide · rare premium 3-bets · check/calls medium strength · chases obvious draws · value-heavy raises</span>
-          <small>Deterministic study archetype based on common low-stakes loose-passive tendencies, not a GTO strategy or a claim about every player.</small>
+          <strong>Modeled table</strong>
+          <span>Five independent recreational-player ranges · wide limps and calls · some preflop folds · sticky pairs and draws · value-heavy raises</span>
+          <small>Hero preflop advice starts from the repository's approximate six-max lookup. Multiway postflop advice uses sampled exact-range equity plus disclosed exploit rules—not a claimed multiway GTO solution.</small>
         </div>
       </section>
 
       <div class="trainer-mode-switch" role="tablist" aria-label="Beat Fish mode">
-        <button type="button" id="mode-play" class="mode-button selected" role="tab" aria-selected="true">Play curated hands</button>
-        <button type="button" id="mode-analyze" class="mode-button" role="tab" aria-selected="false">Estimate a hand history</button>
+        <button type="button" id="mode-play" class="mode-button selected" role="tab" aria-selected="true">Play 6-handed practice</button>
+        <button type="button" id="mode-analyze" class="mode-button" role="tab" aria-selected="false">Estimate heads-up history</button>
       </div>
 
       <div id="play-mode">
@@ -59,19 +59,13 @@
           <div class="table-head">
             <div>
               <span class="street-pill" id="street-pill">Preflop</span>
-              <span class="spot-label" id="spot-label">BTN vs BB fish · 100bb</span>
+              <span class="spot-label" id="spot-label">6-handed BTN isolation · 100bb</span>
             </div>
             <div class="pot-display"><small>Pot</small><strong id="pot-label">$6</strong></div>
           </div>
 
           <div class="poker-table" aria-label="Poker table state">
-            <div class="seat seat-fish">
-              <div class="seat-label"><strong>Fish</strong><span id="fish-stack">$300</span></div>
-              <div class="card-row card-backs" id="fish-cards" aria-label="Fish hole cards hidden">
-                <span class="card-back">?</span><span class="card-back">?</span>
-              </div>
-              <div class="seat-action" id="fish-status">Waiting for your action</div>
-            </div>
+            <div class="opponent-seats" id="opponent-seats" aria-label="Five modeled opponents"></div>
 
             <div class="board-zone">
               <span class="board-caption">Board</span>
@@ -107,7 +101,7 @@
           <div class="question-block">
             <div class="section-kicker" id="question-kicker">Your decision</div>
             <h2 id="question-title">What is your preflop plan?</h2>
-            <p id="question-copy">Choose the action you would actually take before revealing the fish range.</p>
+            <p id="question-copy">Choose the action you would actually take before revealing any opponent range.</p>
             <div class="decision-basis" id="decision-basis">
               <strong id="decision-basis-title">Recommendation basis</strong>
               <p id="decision-basis-copy"></p>
@@ -128,7 +122,7 @@
             <button type="button" class="button button-primary" id="new-hand">New hand</button>
           </div>
           <p class="decision-note" id="decision-note">
-            Feedback is exploit-oriented and uses only the visible action history plus the surviving modeled range—not the fish's hidden cards.
+            Feedback uses only the visible action history plus all surviving modeled ranges—not any opponent's hidden cards.
           </p>
         </aside>
         </section>
@@ -137,25 +131,32 @@
         <div class="range-panel-head">
           <div>
             <div class="section-kicker">Range reveal</div>
-            <h2 id="range-title">Fish range at this moment</h2>
-            <p id="range-copy">Every exact combo is either still possible or removed by the action thread.</p>
+            <h2 id="range-title">Opponent range at this moment</h2>
+            <p id="range-copy">Choose a seat. Every exact combo is either still possible or removed by that player's action thread.</p>
           </div>
           <button type="button" class="text-button" id="hide-range">Hide range</button>
+        </div>
+        <div class="opponent-range-picker">
+          <div>
+            <div class="section-kicker">Choose opponent</div>
+            <p>Each seat has its own independent marginal range. Select a player to inspect their exact combos and responses.</p>
+          </div>
+          <div class="response-options opponent-options" id="range-opponent-options" aria-label="Opponent range to inspect"></div>
         </div>
         <div class="response-explorer" id="response-explorer" hidden>
           <div>
             <div class="section-kicker">Facing each sizing</div>
-            <h3>Exact fish response ranges</h3>
-            <p id="response-explorer-copy">Choose a hero sizing to split the current range by fish action.</p>
+            <h3>Exact opponent response ranges</h3>
+            <p id="response-explorer-copy">Choose a hero sizing to split the selected player's range by action.</p>
           </div>
           <div class="response-controls">
             <div class="response-options" id="response-sizing-options" aria-label="Hero action or sizing"></div>
-            <div class="response-actions" id="response-action-options" aria-label="Fish response"></div>
+            <div class="response-actions" id="response-action-options" aria-label="Opponent response"></div>
           </div>
         </div>
         <div class="range-layout">
           <div>
-            <div class="range-grid" id="range-grid" aria-label="Fish 13 by 13 range matrix"></div>
+            <div class="range-grid" id="range-grid" aria-label="Selected opponent 13 by 13 range matrix"></div>
             <div class="range-color-legend" id="range-color-legend" aria-label="Range color legend"></div>
             <p class="range-legend">Colors show the modeled fish action—fold, call, or raise—not hand strength or probability. Split-colored cells contain exact suit combos assigned to different actions. Click a cell to list the literal combinations.</p>
             <div class="range-combo-detail" id="range-combo-detail">
@@ -187,13 +188,13 @@
         <div class="analyzer-head">
           <div>
             <div class="section-kicker">Your own hand</div>
-            <h2>Estimate the fish range from a hand history</h2>
-            <p>Paste a compact hand history. The estimator starts with every unblocked exact combo, then keeps only the combos that take each recorded fish action. It never creates mixed frequencies.</p>
+            <h2>Estimate one opponent's heads-up range</h2>
+            <p>Paste a compact heads-up hand history. The estimator starts with every unblocked exact combo, then keeps only the combos that take each recorded opponent action. It never creates mixed frequencies.</p>
           </div>
           <div class="model-disclosure">
             <strong>What this is</strong>
-            <span>A deterministic loose-passive range estimate using the same binary rules as the trainer.</span>
-            <small>It is not a site-parser, player-specific read, or multiway GTO solve. Unrecognized lines are reported instead of silently guessed.</small>
+            <span>A heads-up deterministic loose-passive range estimate using the same binary rules as the trainer.</span>
+            <small>Heads-up only: it does not model extra players. It is not a site-parser, player-specific read, or GTO solve. Unrecognized lines are reported instead of silently guessed.</small>
           </div>
         </div>
 

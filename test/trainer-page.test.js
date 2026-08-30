@@ -8,6 +8,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   const trainerJs = await readFile(new URL("../dist/site/trainer.js", import.meta.url), "utf8");
   const trainerCss = await readFile(new URL("../dist/site/styles/trainer.css", import.meta.url), "utf8");
   const fishModel = await readFile(new URL("../dist/src/fish-model.js", import.meta.url), "utf8");
+  const multiwayPractice = await readFile(new URL("../dist/src/multiway-practice.js", import.meta.url), "utf8");
 
   assert.match(solverIndex, /href="trainer\.html"/);
   assert.match(trainer, /<title>Beat Fish · Poker Solver<\/title>/);
@@ -19,13 +20,18 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /id="range-color-legend"/);
   assert.match(trainer, /id="response-sizing-options"/);
   assert.match(trainer, /id="response-action-options"/);
+  assert.match(trainer, /id="opponent-seats"/);
+  assert.match(trainer, /id="range-opponent-options"/);
   assert.match(trainer, /id="range-combo-detail-list"/);
   assert.match(trainer, /id="mode-analyze"/);
   assert.match(trainer, /id="history-input"/);
   assert.match(trainer, /id="analyze-history"/);
   assert.match(trainer, /id="history-range-grid"/);
   assert.match(trainer, /Colors show the modeled fish action—fold, call, or raise/);
-  assert.match(trainer, /not a site-parser, player-specific read, or multiway GTO solve/);
+  assert.match(trainer, /Play 6-handed practice/);
+  assert.match(trainer, /Estimate heads-up history/);
+  assert.match(trainer, /Heads-up only: it does not model extra players/);
+  assert.match(trainer, /not a claimed multiway GTO solution/);
   assert.doesNotMatch(trainer, /more likely|posterior/i);
 
   assert.match(trainerJs, /observeFishAction/);
@@ -33,7 +39,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /createTrainerTree/);
   assert.match(trainerJs, /trainerTreeChild/);
   assert.match(trainerJs, /preflopLookupStrategyForClass/);
-  assert.match(trainerJs, /fishRangeContinuingVsOpenSizes/);
+  assert.match(trainerJs, /createSixHandedPracticeScenario/);
+  assert.match(trainerJs, /estimateHeroMultiwayEquity/);
   assert.match(trainerJs, /analyzeFishHandHistory/);
   assert.match(trainerJs, /rangeCellGradient/);
   assert.match(trainerJs, /Explore this branch/);
@@ -48,6 +55,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerCss, /\.branch-trail/);
   assert.match(trainerCss, /\.response-explorer/);
   assert.match(trainerCss, /\.exact-combo-list/);
+  assert.match(trainerCss, /\.opponent-seats/);
+  assert.match(trainerCss, /\.opponent-range-picker/);
 
   assert.match(fishModel, /Deterministic novice action rule/);
   assert.match(fishModel, /fishActionForCombo/);
@@ -55,4 +64,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(fishModel, /fishRangeContinuingVsOpenSizes/);
   assert.doesNotMatch(fishModel, /fishActionProbabilities/);
   assert.doesNotMatch(fishModel, /\.probability/);
+
+  assert.match(multiwayPractice, /SIX_HANDED_OPPONENTS/);
+  assert.match(multiwayPractice, /limperCount/);
+  assert.match(multiwayPractice, /callsBothIsoSizes/);
 });

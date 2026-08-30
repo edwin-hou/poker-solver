@@ -2,6 +2,7 @@ export * from "./cards.js";
 export * from "./range.js";
 export * from "./fish-model.js";
 export * from "./hand-history-range.js";
+export * from "./multiway-practice.js";
 export * from "./trainer-tree.js";
 export * from "./solver.js";
 export * from "./postflop-solver.js";
