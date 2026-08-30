@@ -179,26 +179,27 @@ function isPremiumThreeBet(classLabel) {
 
 function callsOpen(classLabel, openBb) {
   const { high, low, pair, suited, gap } = classShape(classLabel);
-  const largeOpen = openBb >= 4.5;
+  const mediumOpen = openBb >= 4.5;
+  const veryLargeOpen = openBb >= 6.5;
 
   if (pair) return true;
-  if (high === 14 && (suited || low >= (largeOpen ? 8 : 5))) return true;
+  if (high === 14 && (suited || low >= (veryLargeOpen ? 9 : mediumOpen ? 8 : 5))) return true;
 
   if (suited) {
-    if (high === 13 && low >= (largeOpen ? 8 : 5)) return true;
-    if (high === 12 && low >= (largeOpen ? 9 : 6)) return true;
-    if (high === 11 && low >= (largeOpen ? 9 : 6)) return true;
-    if (high === 10 && low >= (largeOpen ? 8 : 6)) return true;
-    if (gap <= 1 && low >= (largeOpen ? 6 : 4)) return true;
-    if (!largeOpen && gap <= 2 && high <= 11 && low >= 5) return true;
+    if (high === 13 && low >= (veryLargeOpen ? 10 : mediumOpen ? 8 : 5)) return true;
+    if (high === 12 && low >= (veryLargeOpen ? 10 : mediumOpen ? 9 : 6)) return true;
+    if (high === 11 && low >= (veryLargeOpen ? 10 : mediumOpen ? 9 : 6)) return true;
+    if (high === 10 && low >= (veryLargeOpen ? 9 : mediumOpen ? 8 : 6)) return true;
+    if (gap <= 1 && low >= (veryLargeOpen ? 7 : mediumOpen ? 6 : 4)) return true;
+    if (!mediumOpen && gap <= 2 && high <= 11 && low >= 5) return true;
   }
 
   if (!suited) {
-    if (high === 13 && low >= 10) return true;
-    if (high === 12 && low >= 10) return true;
+    if (high === 13 && low >= (veryLargeOpen ? 11 : 10)) return true;
+    if (high === 12 && low >= (veryLargeOpen ? 11 : 10)) return true;
     if (high === 11 && low >= 10) return true;
     if (high === 10 && low >= 9) return true;
-    if (!largeOpen && high === 9 && low >= 8) return true;
+    if (!mediumOpen && high === 9 && low >= 8) return true;
   }
 
   return false;

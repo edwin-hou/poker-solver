@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  createDeck,
   createSixHandedPracticeScenario,
   estimateHeroMultiwayEquity,
   fishActionForCombo,
   parseCards,
+  partitionFishRange,
 } from "../src/index.js";
 
 function seededRandom(seed = 1) {
@@ -47,6 +49,20 @@ test("both isolation sizings create a genuinely multiway flop without curated pr
     assert.ok(actions.filter((action) => action === "call").length >= 2);
     assert.ok(!actions.includes("raise"));
   }
+
+  const bigBlindRange = scenario.opponents.find((opponent) => opponent.id === "bb").range;
+  const smallResponses = partitionFishRange(
+    bigBlindRange,
+    { type: "preflop-vs-open", openBb: scenario.smallTarget / 3 },
+    heroCards,
+  );
+  const largeResponses = partitionFishRange(
+    bigBlindRange,
+    { type: "preflop-vs-open", openBb: scenario.largeTarget / 3 },
+    heroCards,
+  );
+  assert.ok(smallResponses.call.length > largeResponses.call.length);
+  assert.ok(smallResponses.fold.length < largeResponses.fold.length);
 });
 
 test("multiway equity samples compatible exact combos from every active marginal range", () => {
@@ -66,8 +82,11 @@ test("multiway equity samples compatible exact combos from every active marginal
 
 test("multiway players check through to the in-position practice decision", () => {
   const heroCards = parseCards("2c 3d", { exact: 2 });
-  const board = parseCards("Qs Ts 7h", { exact: 3 });
   const scenario = createSixHandedPracticeScenario({ heroCards, random: seededRandom(5) });
+  const board = createDeck([
+    ...heroCards,
+    ...scenario.opponents.flatMap((opponent) => opponent.combo.cards),
+  ]).slice(0, 3);
   const context = { type: "postflop-multiway-first", board };
 
   assert.ok(scenario.opponents.every((opponent) => fishActionForCombo(opponent.combo, context) === "check"));
