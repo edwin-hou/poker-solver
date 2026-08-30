@@ -190,7 +190,7 @@
           <div>
             <div class="section-kicker">Your own hand</div>
             <h2>Estimate one opponent's heads-up range</h2>
-            <p>Paste a compact heads-up hand history. The estimator starts with every unblocked exact combo, then keeps only the combos that take each recorded opponent action. It never creates mixed frequencies.</p>
+            <p>Paste a compact heads-up hand history. The estimator starts with every unblocked exact combo, then keeps only the combos that take each recorded opponent action. Street tabs let you rewind the same binary range from preflop through river instead of seeing only the final answer.</p>
           </div>
           <div class="model-disclosure">
             <strong>What this is</strong>
@@ -227,15 +227,17 @@ Fish checks</textarea>
           </form>
 
           <div class="history-result" id="history-result" hidden>
+            <div class="history-street-tabs" id="history-street-tabs" role="tablist" aria-label="Estimated range by street"></div>
+            <p class="history-street-context" id="history-street-context" aria-live="polite"></p>
             <div class="history-summary">
               <div><small>Street</small><strong id="history-street">—</strong></div>
               <div><small>Board</small><strong id="history-board">—</strong></div>
               <div><small>Exact combos</small><strong id="history-combos">—</strong></div>
               <div><small>Hand classes</small><strong id="history-classes">—</strong></div>
             </div>
-            <div class="range-grid" id="history-range-grid" aria-label="Estimated fish 13 by 13 range matrix"></div>
+            <div class="range-grid" id="history-range-grid" role="tabpanel" aria-label="Estimated fish 13 by 13 range matrix"></div>
             <div class="range-color-legend" id="history-range-legend" aria-label="Hand-history range action color"></div>
-            <p class="range-legend">The final color names the last recognized fish action. Removed cells failed blockers or at least one action in the pasted line.</p>
+            <p class="range-legend">Each tab shows the range after the last recognized Fish action on that street. Removed cells failed a blocker or an action anywhere earlier in the same threaded line.</p>
             <div class="range-combo-detail">
               <div class="section-kicker">Exact combos</div>
               <strong id="history-combo-title">Select a hand class</strong>

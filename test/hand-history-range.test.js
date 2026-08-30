@@ -62,6 +62,32 @@ Fish checks`,
   assert.ok(result.range.every((combo) => !("probability" in combo)));
   const blocked = new Set([...result.heroCards, ...result.board]);
   assert.ok(result.range.every((combo) => combo.cards.every((card) => !blocked.has(card))));
+
+  assert.deepEqual(
+    result.streetSnapshots.map((snapshot) => snapshot.street),
+    ["preflop", "flop", "turn", "river"],
+  );
+  assert.deepEqual(
+    result.streetSnapshots.map((snapshot) => snapshot.board.length),
+    [0, 3, 4, 5],
+  );
+  assert.deepEqual(
+    result.streetSnapshots.map((snapshot) => snapshot.lastFishAction),
+    ["call", "call", "call", "check"],
+  );
+  assert.deepEqual(
+    result.streetSnapshots.map((snapshot) => snapshot.eventCount),
+    [1, 4, 7, 9],
+  );
+  for (let index = 1; index < result.streetSnapshots.length; index += 1) {
+    const prior = new Set(result.streetSnapshots[index - 1].range.map((combo) => combo.cards.join("-")));
+    assert.ok(result.streetSnapshots[index].range.every((combo) => prior.has(combo.cards.join("-"))));
+  }
+  const riverSnapshot = result.streetSnapshots.at(-1);
+  assert.equal(riverSnapshot.summary.comboCount, result.summary.comboCount);
+  assert.deepEqual(riverSnapshot.range, result.range);
+  assert.ok(result.streetSnapshots.every((snapshot) =>
+    snapshot.range.every((combo) => !("probability" in combo))));
 });
 
 test("hand-history estimator reports unsupported lines rather than inventing a range", () => {

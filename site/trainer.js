@@ -96,6 +96,8 @@ const elements = {
   analyzeHistory: $("#analyze-history"),
   historyError: $("#history-error"),
   historyResult: $("#history-result"),
+  historyStreetTabs: $("#history-street-tabs"),
+  historyStreetContext: $("#history-street-context"),
   historyStreet: $("#history-street"),
   historyBoard: $("#history-board"),
   historyCombos: $("#history-combos"),
@@ -118,6 +120,7 @@ let rangeVisible = false;
 let rangeView = { momentId: null, opponentId: null, choiceId: null, fishAction: null };
 let selectedRangeClass = null;
 let selectedHistoryRangeClass = null;
+let selectedHistoryStreet = null;
 
 function formatMoney(value) {
   return `$${Math.max(0, Math.round(value)).toLocaleString("en-US")}`;
@@ -1580,30 +1583,76 @@ function renderHistoryComboDetail(range) {
     .join("");
 }
 
+function renderHistoryStreetTabs(result, selectedSnapshot) {
+  elements.historyStreetTabs.innerHTML = result.streetSnapshots
+    .map((snapshot) => {
+      const selected = snapshot.street === selectedSnapshot.street;
+      return `<button type="button" class="history-street-tab" id="history-tab-${snapshot.street}" role="tab" aria-selected="${selected}" aria-controls="history-range-grid" tabindex="${selected ? "0" : "-1"}" data-history-street="${snapshot.street}" title="${escapeHtml(snapshot.checkpoint)}"><span>${streetLabel(snapshot.street)}</span><small>${snapshot.summary.comboCount.toLocaleString("en-US")} combos</small></button>`;
+    })
+    .join("");
+
+  const selectStreet = (street, focus = false) => {
+    selectedHistoryStreet = street;
+    selectedHistoryRangeClass = null;
+    renderHistoryAnalysis(result);
+    if (focus) elements.historyStreetTabs.querySelector(`[data-history-street="${street}"]`)?.focus();
+  };
+
+  for (const button of elements.historyStreetTabs.querySelectorAll("[data-history-street]")) {
+    button.addEventListener("click", () => selectStreet(button.dataset.historyStreet));
+    button.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const snapshots = result.streetSnapshots;
+      const currentIndex = snapshots.findIndex((snapshot) => snapshot.street === button.dataset.historyStreet);
+      const targetIndex = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? snapshots.length - 1
+          : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + snapshots.length) % snapshots.length;
+      selectStreet(snapshots[targetIndex].street, true);
+    });
+  }
+}
+
 function renderHistoryAnalysis(result) {
+  const snapshot = result.streetSnapshots.find((entry) => entry.street === selectedHistoryStreet)
+    ?? result.streetSnapshots.at(-1);
+  selectedHistoryStreet = snapshot.street;
   selectedHistoryRangeClass = null;
   elements.historyResult.hidden = false;
-  elements.historyStreet.textContent = streetLabel(result.street);
-  elements.historyBoard.textContent = result.board.length
-    ? result.board.map(cardToString).join(" ")
+  renderHistoryStreetTabs(result, snapshot);
+  const recognizedActions = result.events
+    .slice(0, snapshot.eventCount)
+    .filter((event) => event.action !== "board").length;
+  const actionDescription = snapshot.lastFishAction
+    ? `after ${snapshot.checkpoint}`
+    : `after ${snapshot.checkpoint}; no Fish action was recorded on this street`;
+  elements.historyStreetContext.textContent = `${streetLabel(snapshot.street)} range ${actionDescription}. It includes ${recognizedActions} recognized Fish action${recognizedActions === 1 ? "" : "s"} from the same threaded history and every blocker visible by this point.`;
+  elements.historyStreet.textContent = streetLabel(snapshot.street);
+  elements.historyBoard.textContent = snapshot.board.length
+    ? snapshot.board.map(cardToString).join(" ")
     : "Preflop";
-  elements.historyCombos.textContent = result.summary.comboCount.toLocaleString("en-US");
-  elements.historyClasses.textContent = result.summary.classCount.toLocaleString("en-US");
-  elements.historyEvents.innerHTML = result.events
+  elements.historyCombos.textContent = snapshot.summary.comboCount.toLocaleString("en-US");
+  elements.historyClasses.textContent = snapshot.summary.classCount.toLocaleString("en-US");
+  const visibleEvents = result.events.slice(0, snapshot.eventCount);
+  elements.historyEvents.innerHTML = visibleEvents.length
+    ? visibleEvents
     .map((event) => `<li><strong>${streetLabel(event.street)}:</strong> ${escapeHtml(event.text)} <small>${event.before} → ${event.after} combos</small></li>`)
-    .join("");
+      .join("")
+    : "<li>Starting unblocked preflop range.</li>";
   elements.historyWarnings.hidden = result.warnings.length === 0;
   elements.historyWarnings.innerHTML = result.warnings
     .map((warning) => `<li>${escapeHtml(warning)}</li>`)
     .join("");
 
-  const action = result.lastFishAction ?? "current";
+  const action = snapshot.lastFishAction ?? "current";
   const actions = [action];
   const labels = { [action]: historyActionLabel(action) };
   const flatClasses = HAND_CLASSES.flat();
   elements.historyRangeGrid.innerHTML = flatClasses
     .map((label) => {
-      const combos = result.range.filter((entry) => entry.classLabel === label);
+      const combos = snapshot.range.filter((entry) => entry.classLabel === label);
       const total = classComboCount(label);
       if (!combos.length) {
         return `<button type="button" class="fish-range-cell excluded" data-history-range-class="${label}" title="${label}: not in this estimated range"><strong>${label}</strong><small>—</small></button>`;
@@ -1618,11 +1667,11 @@ function renderHistoryAnalysis(result) {
       for (const cell of elements.historyRangeGrid.querySelectorAll("[data-history-range-class]")) {
         cell.classList.toggle("selected", cell === button);
       }
-      renderHistoryComboDetail(result.range);
+      renderHistoryComboDetail(snapshot.range);
     });
   }
-  elements.historyRangeLegend.innerHTML = `<span><i class="range-swatch action-${action}"></i>${labels[action]} on the last recognized fish action</span>`;
-  renderHistoryComboDetail(result.range);
+  elements.historyRangeLegend.innerHTML = `<span><i class="range-swatch action-${action}"></i>${snapshot.lastFishAction ? `${labels[action]} on ${streetLabel(snapshot.street)}'s last Fish action` : `Range after ${streetLabel(snapshot.street)} blockers`}</span>`;
+  renderHistoryComboDetail(snapshot.range);
 }
 
 function analyzeEnteredHistory() {
@@ -1637,6 +1686,7 @@ function analyzeEnteredHistory() {
       startingPot: elements.historyStartingPot.value,
       history: elements.historyInput.value,
     });
+    selectedHistoryStreet = result.streetSnapshots.at(-1)?.street ?? result.street;
     renderHistoryAnalysis(result);
   } catch (error) {
     elements.historyResult.hidden = true;
