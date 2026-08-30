@@ -204,12 +204,25 @@ function callsOpen(classLabel, openBb) {
   return false;
 }
 
+function actionUnopened(classLabel) {
+  const { high, low, pair, suited, gap } = classShape(classLabel);
+  if (["AA", "KK", "QQ", "JJ", "AKs", "AKo", "AQs", "AQo", "KQs"].includes(classLabel)) {
+    return "raise";
+  }
+  if (pair) return "limp";
+  if (suited && (high === 14 || (high >= 10 && low >= 6) || (gap <= 1 && low >= 4))) return "limp";
+  if (!suited && ((high === 14 && low >= 8) || (high >= 11 && low >= 10))) return "limp";
+  return "fold";
+}
+
 /**
  * Deterministic novice action rule. There is deliberately no mixed strategy:
  * for a given exact combo and public state this fish archetype takes one action.
  */
 export function fishActionForCombo(combo, context = {}) {
   const type = context.type;
+
+  if (type === "preflop-unopened") return actionUnopened(combo.classLabel);
 
   if (type === "preflop-vs-open") {
     const openBb = clamp(Number(context.openBb ?? 3.3), 1.5, 8);
@@ -220,6 +233,11 @@ export function fishActionForCombo(combo, context = {}) {
   const board = context.board ?? [];
   const features = postflopHandFeatures(combo, board);
   const river = board.length === 5;
+
+  // Practice pots check through to the in-position hero. This keeps the
+  // multiway tree focused on facing each hero sizing without inventing a
+  // separate multi-opponent donk/raise equilibrium.
+  if (type === "postflop-multiway-first") return "check";
 
   if (type === "postflop-first") {
     // The passive default is check. Obvious monsters and huge combo draws are
@@ -429,4 +447,54 @@ export function estimateHeroEquity(heroCards, board, fishRange, { samples = 320,
     equity += result > 0 ? 1 : result === 0 ? 0.5 : 0;
   }
   return clamp(equity / trials);
+}
+
+/** Estimate hero's share of a multiway showdown from independent per-seat marginal ranges. */
+export function estimateHeroMultiwayEquity(
+  heroCards,
+  board,
+  opponentRanges,
+  { samples = 420, random = Math.random } = {},
+) {
+  const ranges = opponentRanges.filter((range) => range?.length);
+  if (!ranges.length) throw new Error("Cannot estimate multiway equity without an opponent range.");
+  const trials = Math.max(80, Math.floor(samples));
+  let equity = 0;
+  let completed = 0;
+
+  for (let trial = 0; trial < trials; trial += 1) {
+    const blocked = new Set([...heroCards, ...board]);
+    const villains = [];
+    let compatible = true;
+    for (const range of ranges) {
+      const available = range.filter((combo) => combo.cards.every((card) => !blocked.has(card)));
+      if (!available.length) {
+        compatible = false;
+        break;
+      }
+      const villain = sampleFishCombo(available, random);
+      villains.push(villain);
+      villain.cards.forEach((card) => blocked.add(card));
+    }
+    if (!compatible) continue;
+
+    const deck = createDeck([...blocked]);
+    const fullBoard = [...board];
+    while (fullBoard.length < 5) {
+      const chosen = Math.floor(random() * deck.length);
+      fullBoard.push(deck.splice(chosen, 1)[0]);
+    }
+    const heroScore = evaluate7([...heroCards, ...fullBoard]);
+    const villainScores = villains.map((villain) => evaluate7([...villain.cards, ...fullBoard]));
+    const bestVillain = villainScores.reduce((best, score) => compareScores(score, best) > 0 ? score : best);
+    const versusBest = compareScores(heroScore, bestVillain);
+    if (versusBest > 0) equity += 1;
+    else if (versusBest === 0) {
+      const tiedVillains = villainScores.filter((score) => compareScores(score, heroScore) === 0).length;
+      equity += 1 / (tiedVillains + 1);
+    }
+    completed += 1;
+  }
+  if (!completed) throw new Error("No compatible multiway deals could be sampled from these ranges.");
+  return clamp(equity / completed);
 }

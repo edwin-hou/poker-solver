@@ -6,27 +6,23 @@ import {
   cloneFishRange,
   comboClass,
   compareScores,
+  createSixHandedPracticeScenario,
   createDeck,
-  createFishRange,
   createTrainerTree,
-  estimateHeroEquity,
+  estimateHeroMultiwayEquity,
   evaluate7,
   filterFishRange,
-  fishRangeContinuingVsOpenSizes,
   addTrainerTreeNode,
   observeFishAction,
   partitionFishRange,
   postflopHandFeatures,
   preflopLookupStrategyForClass,
   sampleFishAction,
-  sampleFishCombo,
   summarizeFishRange,
   trainerTreeChild,
   trainerTreePath,
 } from "../src/index.js";
 
-const STARTING_STACK = 300;
-const STARTING_POT = 6;
 const STREET_ORDER = ["preflop", "flop", "turn", "river"];
 const STREET_BOARD_COUNT = { preflop: 0, flop: 3, turn: 4, river: 5 };
 const RANGE_ACTIONS = ["fold", "call", "raise"];
@@ -48,12 +44,10 @@ const elements = {
   streetPill: $("#street-pill"),
   spotLabel: $("#spot-label"),
   potLabel: $("#pot-label"),
-  fishStack: $("#fish-stack"),
   heroStack: $("#hero-stack"),
-  fishCards: $("#fish-cards"),
+  opponentSeats: $("#opponent-seats"),
   heroCards: $("#hero-cards"),
   boardCards: $("#board-cards"),
-  fishStatus: $("#fish-status"),
   heroStatus: $("#hero-status"),
   handLog: $("#hand-log"),
   historyBack: $("#history-back"),
@@ -88,6 +82,7 @@ const elements = {
   responseSizingOptions: $("#response-sizing-options"),
   responseActionOptions: $("#response-action-options"),
   responseExplorerCopy: $("#response-explorer-copy"),
+  rangeOpponentOptions: $("#range-opponent-options"),
   comboDetail: $("#range-combo-detail"),
   comboDetailTitle: $("#range-combo-detail-title"),
   comboDetailCopy: $("#range-combo-detail-copy"),
@@ -120,7 +115,7 @@ let currentNodeId = null;
 let pendingBranch = null;
 let historyIndex = 0;
 let rangeVisible = false;
-let rangeView = { momentId: null, choiceId: null, fishAction: null };
+let rangeView = { momentId: null, opponentId: null, choiceId: null, fishAction: null };
 let selectedRangeClass = null;
 let selectedHistoryRangeClass = null;
 
@@ -177,17 +172,37 @@ function cloneRangeEvents(events) {
   return events.map((entry) => ({ ...entry }));
 }
 
+function cloneOpponent(opponent, { reveal = true } = {}) {
+  return {
+    ...opponent,
+    combo: reveal ? { ...opponent.combo, cards: [...opponent.combo.cards] } : null,
+    range: cloneFishRange(opponent.range),
+    rangeEvents: cloneRangeEvents(opponent.rangeEvents),
+  };
+}
+
 function cloneTrainerState(source) {
   return {
     ...source,
     heroCards: [...source.heroCards],
-    fishCombo: { ...source.fishCombo, cards: [...source.fishCombo.cards] },
+    opponents: source.opponents.map((opponent) => cloneOpponent(opponent)),
     runout: [...source.runout],
     board: [...source.board],
-    range: cloneFishRange(source.range),
     actions: cloneActions(source.actions),
-    rangeEvents: cloneRangeEvents(source.rangeEvents),
   };
+}
+
+function activeOpponents(source = state) {
+  return source.opponents.filter((opponent) => !opponent.folded);
+}
+
+function opponentById(id, source = state) {
+  return source.opponents.find((opponent) => opponent.id === id) ?? null;
+}
+
+function opponentsInPostflopOrder(source = state) {
+  const order = ["sb", "bb", "utg", "hj", "co"];
+  return order.map((id) => opponentById(id, source)).filter((opponent) => opponent && !opponent.folded);
 }
 
 function activePath() {
@@ -210,21 +225,20 @@ function snapshotMoment({ kind = "decision", title, copy, decision = null, kicke
     feedback: null,
     board: [...state.board],
     pot: state.pot,
+    limperCount: state.limperCount,
+    smallTarget: state.smallTarget,
+    largeTarget: state.largeTarget,
     heroStack: state.heroStack,
-    fishStack: state.fishStack,
     heroCards: [...state.heroCards],
-    fishCombo: state.revealFish ? { ...state.fishCombo, cards: [...state.fishCombo.cards] } : null,
-    fishStatus: state.fishStatus,
+    opponents: state.opponents.map((opponent) => cloneOpponent(opponent, { reveal: state.revealFish })),
     heroStatus: state.heroStatus,
     actions: cloneActions(state.actions),
-    range: cloneFishRange(state.range),
-    rangeEvents: cloneRangeEvents(state.rangeEvents),
     stateBefore: cloneTrainerState(state),
   }, pendingBranch ?? {});
   pendingBranch = null;
   currentNodeId = moment.id;
   historyIndex = activePath().length - 1;
-  rangeView = { momentId: moment.id, choiceId: null, fishAction: null };
+  rangeView = { momentId: moment.id, opponentId: null, choiceId: null, fishAction: null };
   selectedRangeClass = null;
   render();
   return moment;
@@ -234,41 +248,43 @@ function addAction(actor, text) {
   state.actions.push({ street: state.street, actor, text });
 }
 
-function addRangeEvent(text) {
-  state.rangeEvents.push({ street: state.street, text });
+function addRangeEvent(opponent, text) {
+  opponent.rangeEvents.push({ street: state.street, text });
 }
 
 function commit(player, amount) {
-  const stackKey = player === "hero" ? "heroStack" : "fishStack";
-  const committedKey = player === "hero" ? "heroCommitted" : "fishCommitted";
-  const paid = Math.max(0, Math.min(Number(amount) || 0, state[stackKey]));
-  state[stackKey] -= paid;
-  state[committedKey] += paid;
+  const target = player === "hero" ? state : opponentById(player);
+  if (!target) throw new Error(`Unknown player: ${player}`);
+  const stackKey = player === "hero" ? "heroStack" : "stack";
+  const committedKey = player === "hero" ? "heroCommitted" : "committed";
+  const paid = Math.max(0, Math.min(Number(amount) || 0, target[stackKey]));
+  target[stackKey] -= paid;
+  target[committedKey] += paid;
   state.pot += paid;
   return paid;
 }
 
 function commitTo(player, target) {
-  const committedKey = player === "hero" ? "heroCommitted" : "fishCommitted";
-  return commit(player, Math.max(0, target - state[committedKey]));
+  const source = player === "hero" ? state : opponentById(player);
+  const committed = player === "hero" ? source.heroCommitted : source.committed;
+  return commit(player, Math.max(0, target - committed));
 }
 
-function observeFish(context, action, text) {
-  state.range = observeFishAction(
-    state.range,
+function observeOpponent(opponent, context, action, text) {
+  opponent.range = observeFishAction(
+    opponent.range,
     context,
     action,
     [...state.heroCards, ...state.board],
   );
-  addRangeEvent(`${text} Keep only exact hands this basic fish model would take that action with.`);
+  addRangeEvent(opponent, `${text} Keep only exact hands this basic fish model would take that action with.`);
 }
 
 function startNewHand() {
   const heroCards = randomTrainerHeroCards();
-  const initialRange = createFishRange({ heroCards });
-  const curatedFishRange = fishRangeContinuingVsOpenSizes(initialRange, [10 / 3, 5], heroCards);
-  const fishCombo = sampleFishCombo(curatedFishRange);
-  const runoutDeck = createDeck([...heroCards, ...fishCombo.cards]);
+  const scenario = createSixHandedPracticeScenario({ heroCards });
+  const hiddenCards = scenario.opponents.flatMap((opponent) => opponent.combo.cards);
+  const runoutDeck = createDeck([...heroCards, ...hiddenCards]);
   const runout = [];
   while (runout.length < 5) {
     const chosen = Math.floor(Math.random() * runoutDeck.length);
@@ -276,24 +292,17 @@ function startNewHand() {
   }
   state = {
     heroCards,
-    fishCombo,
+    opponents: scenario.opponents,
     runout,
     board: [],
     street: "preflop",
-    pot: STARTING_POT,
-    heroStack: STARTING_STACK,
-    fishStack: STARTING_STACK,
-    heroCommitted: 0,
-    fishCommitted: 0,
-    range: initialRange,
-    actions: [],
-    rangeEvents: [
-      {
-        street: "preflop",
-        text: "Before the fish acts, every exact two-card hand not blocked by your hole cards is still possible. Most prompts are curated six-max opens, and hidden fish hands come from continuing combos, so explored raises reach a real decision instead of ending in a routine fold.",
-      },
-    ],
-    fishStatus: "Waiting for your action",
+    pot: scenario.startingPot,
+    heroStack: scenario.heroStack,
+    heroCommitted: scenario.heroCommitted,
+    actions: cloneActions(scenario.preflopActions),
+    limperCount: scenario.limperCount,
+    smallTarget: scenario.smallTarget,
+    largeTarget: scenario.largeTarget,
     heroStatus: "Decision pending",
     revealFish: false,
   };
@@ -302,7 +311,7 @@ function startNewHand() {
   pendingBranch = null;
   historyIndex = 0;
   rangeVisible = false;
-  rangeView = { momentId: null, choiceId: null, fishAction: null };
+  rangeView = { momentId: null, opponentId: null, choiceId: null, fishAction: null };
   selectedRangeClass = null;
   elements.rangePanel.hidden = true;
   pushHeroDecision(buildPreflopOpenDecision());
@@ -329,66 +338,39 @@ function buildPreflopOpenDecision() {
     openSize: 10 / 3,
   }, classLabel);
   const [foldFrequency, openFrequency] = lookup.strategy;
-  const recommended = openFrequency > foldFrequency ? "open10" : "fold";
-  const acceptable = openFrequency >= 0.98 ? ["open15"] : [];
+  const recommended = openFrequency > foldFrequency ? "isoSmall" : "fold";
+  const acceptable = openFrequency >= 0.98 ? ["isoLarge"] : [];
   const reason = recommended === "fold"
-    ? `${classLabel} is a fold in the repository's six-max BTN baseline (${Math.round(foldFrequency * 100)}% fold). Even against the fish, the trainer does not turn an out-of-range hand into an automatic open.`
-    : `${classLabel} opens in the repository's six-max BTN baseline (${Math.round(openFrequency * 100)}% raise). Raise to $10 is the chart-backed default; $15 is shown only as a labeled exploit deviation for the strongest pure opens.`;
+    ? `${classLabel} is a fold in the repository's six-max BTN baseline (${Math.round(foldFrequency * 100)}% fold). The limpers do not make an out-of-range hand an automatic isolation raise.`
+    : `${classLabel} opens in the repository's six-max BTN baseline (${Math.round(openFrequency * 100)}% raise). Isolating to ${formatMoney(state.smallTarget)} is the baseline-guided default; ${formatMoney(state.largeTarget)} is the larger live exploit option.`;
   return {
-    type: "preflop-open",
-    title: `You look down at ${classLabel}. What is your plan?`,
-    copy: "It folds to you on the button. The big blind is the modeled basic loose-passive fish.",
+    type: "preflop-isolate",
+    title: `You look down at ${classLabel} on the BTN. Isolate the limpers?`,
+    copy: `${state.limperCount} loose-passive player${state.limperCount === 1 ? " has" : "s have"} limped. Other seats have already folded or are waiting in the blinds.`,
     recommended,
     acceptable,
     reason,
     basis: {
       title: "Six-max preflop lookup baseline",
-      copy: `${lookup.nodeLabel}. Original deterministic chart approximation; not a licensed equilibrium solve. Recommendation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise.`,
+      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The isolation sizing is a transparent live multiway exploit adjustment, not a solved limped-pot equilibrium.`,
     },
+    smallTarget: state.smallTarget,
+    largeTarget: state.largeTarget,
     options: [
-      { id: "fold", label: "Fold", detail: "Give up the button" },
-      { id: "open10", label: "Raise to $10", detail: "Standard live open" },
-      { id: "open15", label: "Raise to $15", detail: "Punish an inelastic caller" },
-    ],
-  };
-}
-
-function buildVsThreeBetDecision(amountToCall) {
-  const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
-  const lookup = preflopLookupStrategyForClass({
-    preflopSpot: "vs-3bet",
-    heroPosition: "BTN",
-    villainPosition: "BB",
-    stack: 100,
-    openSize: 10 / 3,
-  }, classLabel);
-  const [foldFrequency, callFrequency, fourBetFrequency] = lookup.strategy;
-  const continueFrequency = callFrequency + fourBetFrequency;
-  const recommended = continueFrequency > foldFrequency ? "call" : "fold";
-  const acceptable = [];
-  const reason = recommended === "call"
-    ? `${classLabel} continues often enough in the six-max baseline (${Math.round(continueFrequency * 100)}% call-or-4-bet). This simplified fish branch groups the baseline's aggressive continues into call rather than pretending to solve a new 4-bet tree.`
-    : `A basic fish's rare 3-bet is extremely face-up, and the six-max baseline already folds ${classLabel} ${Math.round(foldFrequency * 100)}% of the time.`;
-  return {
-    type: "preflop-vs-3bet",
-    title: `Fish 3-bets. Continue with ${classLabel}?`,
-    copy: `You are facing ${formatMoney(amountToCall)} more. Treat this rare preflop aggression as value-heavy.`,
-    recommended,
-    acceptable,
-    reason,
-    basis: {
-      title: "Six-max preflop lookup + fish adjustment",
-      copy: `${lookup.nodeLabel}. Approximate baseline: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet. This trainer's two-action branch collapses continues to call and is labeled as an exploit simplification.`,
-    },
-    options: [
-      { id: "fold", label: "Fold", detail: "Respect the value-heavy 3-bet" },
-      { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Take position to the flop" },
+      { id: "fold", label: "Fold", detail: "Do not enter the limped pot" },
+      { id: "isoSmall", label: `Raise to ${formatMoney(state.smallTarget)}`, detail: "Baseline isolation size" },
+      { id: "isoLarge", label: `Raise to ${formatMoney(state.largeTarget)}`, detail: "Larger live exploit size" },
     ],
   };
 }
 
 function postflopEquity() {
-  return estimateHeroEquity(state.heroCards, state.board, state.range, { samples: 260 });
+  return estimateHeroMultiwayEquity(
+    state.heroCards,
+    state.board,
+    activeOpponents().map((opponent) => opponent.range),
+    { samples: 420 },
+  );
 }
 
 function buildAfterCheckDecision() {
@@ -408,21 +390,21 @@ function buildAfterCheckDecision() {
   }
   const percentEquity = Math.round(equity * 100);
   const reason = recommended === "bet75"
-    ? `You have about ${percentEquity}% showdown equity versus the surviving fish range. A caller-heavy player rewards a bigger value bet instead of slow-playing.`
+    ? `You have about ${percentEquity}% showdown equity versus the surviving multiway ranges. Caller-heavy opponents reward a bigger value bet instead of slow-playing.`
     : recommended === "bet33"
       ? `You have about ${percentEquity}% equity versus the surviving range. A small bet extracts thin value or applies cheap pressure without bloating the pot unnecessarily.`
       : `You have about ${percentEquity}% equity versus the surviving range. This is a good place to protect showdown value and avoid forcing money into a range that is sticky when it continues.`;
   return {
-    type: "postflop-after-check",
-    title: `Fish checks the ${state.street}. What do you do?`,
-    copy: "Choose your exploit before looking at the fish's surviving range.",
+    type: "postflop-after-checks",
+    title: `${activeOpponents().length} opponents check the ${state.street}. What do you do?`,
+    copy: "Choose your multiway exploit before inspecting any opponent's surviving range.",
     recommended,
     acceptable,
     reason,
     equity,
     basis: {
       title: "Exact range equity + exploit rule",
-      copy: "Equity is calculated against the exact binary combos surviving this branch. Bet/check thresholds are transparent loose-passive exploit heuristics, not a six-player postflop equilibrium solve.",
+      copy: `Equity is sampled against ${activeOpponents().length} independent exact binary opponent ranges. Bet/check thresholds are transparent multiway loose-passive exploit heuristics, not a solved six-player equilibrium.`,
     },
     options: [
       { id: "check", label: "Check back", detail: "Realize equity and keep the pot controlled" },
@@ -432,45 +414,8 @@ function buildAfterCheckDecision() {
   };
 }
 
-function buildVsDonkDecision(amountToCall) {
-  const equity = postflopEquity();
-  const potOdds = amountToCall / Math.max(1, state.pot + amountToCall);
-  const riverTax = state.street === "river" ? 0.05 : 0;
-  let recommended = "fold";
-  let acceptable = [];
-  if (equity >= (state.street === "river" ? 0.86 : 0.78)) {
-    recommended = "raise";
-    acceptable = ["call"];
-  } else if (equity >= potOdds + riverTax + 0.035) {
-    recommended = "call";
-  }
-  const reason = recommended === "raise"
-    ? `Your estimated equity is ${Math.round(equity * 100)}% against the exact hands this fish model leads. There is enough value to raise rather than merely bluff-catch.`
-    : recommended === "call"
-      ? `You need roughly ${Math.round(potOdds * 100)}% equity and estimate about ${Math.round(equity * 100)}%. Calling keeps the weaker value and draws in.`
-      : `The price needs roughly ${Math.round(potOdds * 100)}% equity, while the range estimate is only about ${Math.round(equity * 100)}%. Especially on the river, this fish's aggression is too value-heavy to force a hero call.`;
-  return {
-    type: "postflop-vs-donk",
-    title: `Fish leads ${formatMoney(amountToCall)}. Your response?`,
-    copy: `The lead itself has already removed many weak hands from the fish range. Pot: ${formatMoney(state.pot)}.`,
-    recommended,
-    acceptable,
-    reason,
-    equity,
-    amountToCall,
-    basis: {
-      title: "Exact pot odds + range equity",
-      copy: "The price and equity use the current pot and exact modeled lead range. Raise/call safety margins are exploit assumptions for this fish archetype, not multiway GTO output.",
-    },
-    options: [
-      { id: "fold", label: "Fold", detail: "Do not pay off a value-heavy line" },
-      { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Keep worse value and draws in" },
-      { id: "raise", label: "Raise 3×", detail: "Exploit with a strong value edge" },
-    ],
-  };
-}
-
-function buildVsRaiseDecision(amountToCall) {
+function buildVsRaiseDecision(amountToCall, raiserId) {
+  const raiser = opponentById(raiserId);
   const equity = postflopEquity();
   const potOdds = amountToCall / Math.max(1, state.pot + amountToCall);
   const extraRespect = state.street === "river" ? 0.08 : 0.04;
@@ -480,16 +425,17 @@ function buildVsRaiseDecision(amountToCall) {
     : `This basic fish has no bluff-raise branch in this spot. Your estimated ${Math.round(equity * 100)}% equity does not clear a ${Math.round(potOdds * 100)}% price once that is respected.`;
   return {
     type: "postflop-vs-raise",
-    title: `Fish raises. Do you pay it off?`,
-    copy: `You are facing ${formatMoney(amountToCall)} more after the fish took one of its strongest lines.`,
+    title: `${raiser.position} raises. Do you pay it off multiway?`,
+    copy: `You are facing ${formatMoney(amountToCall)} more with ${activeOpponents().length} opponents still represented by independent ranges.`,
     recommended,
     acceptable: [],
     reason,
     equity,
     amountToCall,
+    raiserId,
     basis: {
       title: "Exact pot odds + value-heavy raise model",
-      copy: "The range and price are exact for this branch; the extra fold margin reflects the modeled fish's no-bluff raise rule. It is not presented as a six-player postflop solve.",
+      copy: "The price is exact and equity is sampled from every active seat's exact binary range. The extra fold margin reflects the modeled fish's no-bluff raise rule; it is not presented as a solved multiway equilibrium.",
     },
     options: [
       { id: "fold", label: "Fold", detail: "Exploit the face-up raise" },
@@ -513,7 +459,7 @@ function feedbackFor(decision, choiceId) {
     return {
       grade: "B",
       title: "Reasonable, but not my first choice",
-      copy: `${decision.reason} I slightly prefer ${recommendedLabel}, but your line is defensible against this fish model.`,
+      copy: `${decision.reason} I slightly prefer ${recommendedLabel}, but your line is defensible against these modeled opponents.`,
     };
   }
   return {
@@ -531,10 +477,14 @@ function chooseAnswer(choiceId) {
   historyIndex = activePath().length - 1;
   moment.answer = choiceId;
   moment.feedback = feedbackFor(moment.decision, choiceId);
-  const hasImmediateFishResponse = fishResponseScenarios(moment)
+  const rangeOpponent = moment.opponents.find((opponent) => opponent.id === rangeView.opponentId)
+    ?? moment.opponents.find((opponent) => !opponent.folded)
+    ?? moment.opponents[0];
+  const hasImmediateFishResponse = fishResponseScenarios(moment, rangeOpponent)
     .some((scenario) => scenario.choiceId === choiceId);
   rangeView = {
     momentId: moment.id,
+    opponentId: rangeView.opponentId,
     choiceId: hasImmediateFishResponse ? choiceId : null,
     fishAction: null,
   };
@@ -549,7 +499,7 @@ function exploreSelectedBranch() {
   if (existing) {
     currentNodeId = existing.id;
     historyIndex = activePath().length - 1;
-    rangeView = { momentId: existing.id, choiceId: null, fishAction: null };
+    rangeView = { momentId: existing.id, opponentId: rangeView.opponentId, choiceId: null, fishAction: null };
     selectedRangeClass = null;
     render();
     return;
@@ -562,36 +512,22 @@ function exploreSelectedBranch() {
 }
 
 function applyHeroChoice(decision, choice) {
-  if (decision.type === "preflop-open") {
+  if (decision.type === "preflop-isolate") {
     if (choice === "fold") {
       addAction("Hero", "folds preflop");
       state.heroStatus = "Folded";
-      finishHand("You folded. Use the history arrows to review the decision and the unrevealed preflop range.", false);
+      finishHand("You folded the isolation spot. Use the opponent tabs in Range Reveal to inspect every seat's exact preflop range.", false);
       return;
     }
-    const target = choice === "open15" ? 15 : 10;
+    const target = choice === "isoLarge" ? state.largeTarget : state.smallTarget;
     commitTo("hero", target);
-    addAction("Hero", `raises to ${formatMoney(target)}`);
+    addAction("Hero", `isolates to ${formatMoney(target)}`);
     state.heroStatus = `Raised to ${formatMoney(target)}`;
-    fishRespondPreflop(target);
+    opponentsRespondPreflop(target);
     return;
   }
 
-  if (decision.type === "preflop-vs-3bet") {
-    if (choice === "fold") {
-      addAction("Hero", "folds to the 3-bet");
-      state.heroStatus = "Folded to 3-bet";
-      finishHand("You folded to the fish's face-up premium 3-bet. Reveal the range to see exactly which hands remain.", false);
-      return;
-    }
-    commitTo("hero", state.fishCommitted);
-    addAction("Hero", `calls the 3-bet for ${formatMoney(decision.amountToCall)}`);
-    state.heroStatus = "Called 3-bet";
-    advanceStreet();
-    return;
-  }
-
-  if (decision.type === "postflop-after-check") {
+  if (decision.type === "postflop-after-checks") {
     if (choice === "check") {
       addAction("Hero", "checks back");
       state.heroStatus = "Checked back";
@@ -603,80 +539,45 @@ function applyHeroChoice(decision, choice) {
     commit("hero", amount);
     addAction("Hero", `bets ${formatMoney(amount)} (${Math.round(fraction * 100)}% pot)`);
     state.heroStatus = `Bet ${formatMoney(amount)}`;
-    fishRespondToBet(amount, fraction);
-    return;
-  }
-
-  if (decision.type === "postflop-vs-donk") {
-    if (choice === "fold") {
-      addAction("Hero", `folds to the ${state.street} lead`);
-      state.heroStatus = "Folded";
-      finishHand("You folded to the fish lead. The range reveal preserves exactly which hands can lead at that decision.", false);
-      return;
-    }
-    if (choice === "call") {
-      commitTo("hero", state.fishCommitted);
-      addAction("Hero", `calls ${formatMoney(decision.amountToCall)}`);
-      state.heroStatus = "Called";
-      nextStreetOrShowdown();
-      return;
-    }
-    const raiseTarget = Math.min(
-      state.heroCommitted + state.heroStack,
-      Math.max(state.fishCommitted * 3, state.fishCommitted + decision.amountToCall * 2),
-    );
-    commitTo("hero", raiseTarget);
-    addAction("Hero", `raises to ${formatMoney(state.heroCommitted)}`);
-    state.heroStatus = `Raised to ${formatMoney(state.heroCommitted)}`;
-    fishRespondToRaise();
+    opponentsRespondToBet(amount, fraction);
     return;
   }
 
   if (decision.type === "postflop-vs-raise") {
+    const raiser = opponentById(decision.raiserId);
     if (choice === "fold") {
-      addAction("Hero", "folds to the raise");
+      addAction("Hero", `folds to ${raiser.position}'s raise`);
       state.heroStatus = "Folded to raise";
-      finishHand("You folded to the fish raise. Step backward to compare your threshold with the literal range that reaches this node.", false);
+      finishHand(`You folded to ${raiser.position}'s value-heavy raise. Each opponent's range remains available for review.`, false);
       return;
     }
-    commitTo("hero", state.fishCommitted);
+    commitTo("hero", raiser.committed);
     addAction("Hero", `calls ${formatMoney(decision.amountToCall)}`);
     state.heroStatus = "Called raise";
     nextStreetOrShowdown();
   }
 }
 
-function fishRespondPreflop(openAmount) {
+function opponentsRespondPreflop(openAmount) {
   const context = { type: "preflop-vs-open", openBb: openAmount / 3 };
-  const action = sampleFishAction(state.fishCombo, context);
-  if (action === "fold") {
-    observeFish(context, action, `Preflop: fish folds to ${formatMoney(openAmount)}.`);
-    addAction("Fish", `folds to ${formatMoney(openAmount)}`);
-    state.fishStatus = "Folded";
-    finishHand("Fish folds. The revealed range shows the exact hands this model releases to your sizing.", false);
-    return;
+  const responseOrder = ["sb", "bb", "utg", "hj", "co"];
+  for (const id of responseOrder) {
+    const opponent = opponentById(id);
+    if (!opponent || opponent.folded) continue;
+    const action = sampleFishAction(opponent.combo, context);
+    if (action === "raise") throw new Error("Curated multiway practice produced an unexpected preflop 3-bet.");
+    observeOpponent(opponent, context, action, `Preflop: ${opponent.position} ${action}s facing ${formatMoney(openAmount)}.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to isolation raise";
+      addAction(opponent.position, `folds to ${formatMoney(openAmount)}`);
+    } else {
+      commitTo(opponent.id, state.heroCommitted);
+      opponent.status = `Called ${formatMoney(openAmount)}`;
+      addAction(opponent.position, `calls ${formatMoney(openAmount)}`);
+    }
   }
-  if (action === "call") {
-    observeFish(context, action, `Preflop: fish calls your ${formatMoney(openAmount)} open.`);
-    commitTo("fish", state.heroCommitted);
-    addAction("Fish", `calls ${formatMoney(openAmount)}`);
-    state.fishStatus = "Called preflop";
-    advanceStreet();
-    return;
-  }
-
-  observeFish(context, action, `Preflop: fish 3-bets your ${formatMoney(openAmount)} open.`);
-  const target = Math.min(
-    state.fishCommitted + state.fishStack,
-    Math.max(35, Math.round((openAmount * 3.3) / 5) * 5),
-  );
-  commitTo("fish", target);
-  addAction("Fish", `3-bets to ${formatMoney(state.fishCommitted)}`);
-  state.fishStatus = `3-bet to ${formatMoney(state.fishCommitted)}`;
-  const amountToCall = Math.max(0, state.fishCommitted - state.heroCommitted);
-  const decision = buildVsThreeBetDecision(amountToCall);
-  decision.amountToCall = amountToCall;
-  pushHeroDecision(decision);
+  advanceStreet();
 }
 
 function advanceStreet() {
@@ -687,82 +588,81 @@ function advanceStreet() {
   }
   state.street = STREET_ORDER[currentIndex + 1];
   state.heroCommitted = 0;
-  state.fishCommitted = 0;
+  for (const opponent of state.opponents) opponent.committed = 0;
   const targetCards = STREET_BOARD_COUNT[state.street];
   state.board = state.runout.slice(0, targetCards);
-  state.range = filterFishRange(state.range, [...state.heroCards, ...state.board]);
   const boardText = state.board.map(cardToString).join(" ");
-  addRangeEvent(`${streetLabel(state.street)} ${boardText}: remove newly blocked exact combos. Every earlier action filter stays in force.`);
+  for (const opponent of activeOpponents()) {
+    opponent.range = filterFishRange(opponent.range, [...state.heroCards, ...state.board]);
+    addRangeEvent(opponent, `${streetLabel(state.street)} ${boardText}: remove newly blocked exact combos while preserving ${opponent.position}'s earlier action filters.`);
+  }
   addAction("Board", `${streetLabel(state.street)} · ${boardText}`);
-  startFishStreet();
+  startMultiwayStreet();
 }
 
-function startFishStreet() {
-  const context = { type: "postflop-first", board: state.board };
-  const action = sampleFishAction(state.fishCombo, context);
-  if (action === "check") {
-    observeFish(context, action, `${streetLabel(state.street)}: fish checks first.`);
-    addAction("Fish", "checks");
-    state.fishStatus = "Checked";
-    pushHeroDecision(buildAfterCheckDecision());
-    return;
+function startMultiwayStreet() {
+  const context = { type: "postflop-multiway-first", board: state.board };
+  for (const opponent of opponentsInPostflopOrder()) {
+    observeOpponent(opponent, context, "check", `${streetLabel(state.street)}: ${opponent.position} checks in the multiway pot.`);
+    addAction(opponent.position, "checks");
+    opponent.status = "Checked";
   }
-
-  observeFish(context, action, `${streetLabel(state.street)}: fish leads into you.`);
-  const fraction = state.street === "river" ? 0.60 : 0.40;
-  const amount = Math.max(1, Math.round(state.pot * fraction));
-  commit("fish", amount);
-  addAction("Fish", `leads ${formatMoney(amount)}`);
-  state.fishStatus = `Led ${formatMoney(amount)}`;
-  pushHeroDecision(buildVsDonkDecision(amount));
+  pushHeroDecision(buildAfterCheckDecision());
 }
 
-function fishRespondToBet(amount, fraction) {
+function opponentsRespondToBet(amount, fraction) {
   const context = { type: "postflop-vs-bet", board: state.board, betFraction: fraction };
-  const action = sampleFishAction(state.fishCombo, context);
-  if (action === "fold") {
-    observeFish(context, action, `${streetLabel(state.street)}: fish folds to your ${Math.round(fraction * 100)}% pot bet.`);
-    addAction("Fish", "folds");
-    state.fishStatus = "Folded";
-    finishHand("Fish folds to your bet. Reveal the range to see the exact hands that reach the fold branch.", false);
+  for (const opponent of opponentsInPostflopOrder()) {
+    const action = sampleFishAction(opponent.combo, context);
+    observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing your ${Math.round(fraction * 100)}% pot bet.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded";
+      addAction(opponent.position, "folds");
+      continue;
+    }
+    if (action === "call") {
+      commitTo(opponent.id, state.heroCommitted);
+      opponent.status = `Called ${formatMoney(amount)}`;
+      addAction(opponent.position, `calls ${formatMoney(amount)}`);
+      continue;
+    }
+    const raiseTarget = Math.min(
+      opponent.committed + opponent.stack,
+      Math.max(state.heroCommitted * 3, state.heroCommitted + amount * 2),
+    );
+    commitTo(opponent.id, raiseTarget);
+    opponent.status = `Raised to ${formatMoney(opponent.committed)}`;
+    addAction(opponent.position, `raises to ${formatMoney(opponent.committed)}`);
+    const amountToCall = Math.max(0, opponent.committed - state.heroCommitted);
+    settleOpponentsFacingRaise(opponent.id);
+    pushHeroDecision(buildVsRaiseDecision(amountToCall, opponent.id));
     return;
   }
-  if (action === "call") {
-    observeFish(context, action, `${streetLabel(state.street)}: fish calls your ${Math.round(fraction * 100)}% pot bet.`);
-    commitTo("fish", state.heroCommitted);
-    addAction("Fish", `calls ${formatMoney(amount)}`);
-    state.fishStatus = "Called";
-    nextStreetOrShowdown();
+  if (!activeOpponents().length) {
+    finishHand("Every opponent folded to your bet. Review each seat to see its exact fold range.", false);
     return;
   }
-
-  observeFish(context, action, `${streetLabel(state.street)}: fish raises your ${Math.round(fraction * 100)}% pot bet.`);
-  const raiseTarget = Math.min(
-    state.fishCommitted + state.fishStack,
-    Math.max(state.heroCommitted * 3, state.heroCommitted + amount * 2),
-  );
-  commitTo("fish", raiseTarget);
-  addAction("Fish", `raises to ${formatMoney(state.fishCommitted)}`);
-  state.fishStatus = `Raised to ${formatMoney(state.fishCommitted)}`;
-  const amountToCall = Math.max(0, state.fishCommitted - state.heroCommitted);
-  pushHeroDecision(buildVsRaiseDecision(amountToCall));
+  nextStreetOrShowdown();
 }
 
-function fishRespondToRaise() {
+function settleOpponentsFacingRaise(raiserId) {
+  const raiser = opponentById(raiserId);
   const context = { type: "postflop-vs-raise", board: state.board };
-  const action = sampleFishAction(state.fishCombo, context);
-  if (action === "fold") {
-    observeFish(context, action, `${streetLabel(state.street)}: fish folds after you raise its lead.`);
-    addAction("Fish", "folds to the raise");
-    state.fishStatus = "Folded to raise";
-    finishHand("Fish folds to your raise. The range reveal shows the exact value/draw region that was willing to lead but not continue.", false);
-    return;
+  for (const opponent of opponentsInPostflopOrder()) {
+    if (opponent.id === raiserId) continue;
+    const action = sampleFishAction(opponent.combo, context);
+    observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing ${raiser.position}'s raise.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to raise";
+      addAction(opponent.position, `folds to ${raiser.position}'s raise`);
+    } else {
+      commitTo(opponent.id, raiser.committed);
+      opponent.status = `Called raise to ${formatMoney(raiser.committed)}`;
+      addAction(opponent.position, `calls to ${formatMoney(raiser.committed)}`);
+    }
   }
-  observeFish(context, action, `${streetLabel(state.street)}: fish calls after you raise its lead.`);
-  commitTo("fish", state.heroCommitted);
-  addAction("Fish", `calls the raise to ${formatMoney(state.heroCommitted)}`);
-  state.fishStatus = "Called raise";
-  nextStreetOrShowdown();
 }
 
 function nextStreetOrShowdown() {
@@ -779,17 +679,34 @@ function finishHand(message, showdown) {
     if (state.board.length < 5) {
       state.board = [...state.runout];
       state.street = "river";
-      state.range = filterFishRange(state.range, [...state.heroCards, ...state.board]);
+      for (const opponent of activeOpponents()) {
+        opponent.range = filterFishRange(opponent.range, [...state.heroCards, ...state.board]);
+      }
     }
     const heroScore = evaluate7([...state.heroCards, ...state.board]);
-    const fishScore = evaluate7([...state.fishCombo.cards, ...state.board]);
-    const result = compareScores(heroScore, fishScore);
+    const results = activeOpponents().map((opponent) => ({
+      opponent,
+      score: evaluate7([...opponent.combo.cards, ...state.board]),
+    }));
+    const contenders = [{ hero: true, score: heroScore }, ...results];
+    let bestScore = heroScore;
+    for (const contender of contenders.slice(1)) {
+      if (compareScores(contender.score, bestScore) > 0) bestScore = contender.score;
+    }
+    const winners = contenders.filter((contender) => compareScores(contender.score, bestScore) === 0);
+    const heroWins = winners.some((winner) => winner.hero);
+    const winningOpponents = winners.filter((winner) => !winner.hero).map((winner) => winner.opponent.position);
     state.revealFish = true;
-    const resultText = result > 0 ? "You win the showdown." : result < 0 ? "Fish wins the showdown." : "The hand chops.";
-    addAction("Showdown", `${resultText} Fish had ${state.fishCombo.display}.`);
-    state.fishStatus = `${state.fishCombo.display} · showdown`;
+    const resultText = winners.length === 1
+      ? heroWins ? "You win the multiway showdown." : `${winningOpponents[0]} wins the showdown.`
+      : heroWins
+        ? `You chop with ${winningOpponents.join(" and ")}.`
+        : `${winningOpponents.join(" and ")} chop the showdown.`;
+    const shownHands = results.map(({ opponent }) => `${opponent.position} ${opponent.combo.display}`).join(" · ");
+    addAction("Showdown", `${resultText} ${shownHands}.`);
+    for (const { opponent } of results) opponent.status = `${opponent.combo.display} · showdown`;
     state.heroStatus = resultText;
-    copy = `${message} ${resultText} The hidden fish hand is revealed only now; your earlier grades never used it.`;
+    copy = `${message} ${resultText} All remaining hidden hands are revealed only now; earlier grades used independent seat ranges, never the actual cards.`;
   }
   snapshotMoment({
     kind: "complete",
@@ -826,29 +743,29 @@ function actionBreakdown(actionCounts, actions, labels) {
     .join(" · ");
 }
 
-function fishResponseScenarios(moment) {
+function fishResponseScenarios(moment, opponent) {
   if (moment.kind !== "decision") return [];
   const optionLabel = (choiceId) =>
     moment.decision.options.find((option) => option.id === choiceId)?.label ?? choiceId;
 
-  if (moment.decision.type === "preflop-open") {
+  if (moment.decision.type === "preflop-isolate" && !opponent.folded) {
     return [
       {
-        choiceId: "open10",
-        label: optionLabel("open10"),
-        context: { type: "preflop-vs-open", openBb: 10 / 3 },
+        choiceId: "isoSmall",
+        label: optionLabel("isoSmall"),
+        context: { type: "preflop-vs-open", openBb: moment.decision.smallTarget / 3 },
         actions: [...RANGE_ACTIONS],
       },
       {
-        choiceId: "open15",
-        label: optionLabel("open15"),
-        context: { type: "preflop-vs-open", openBb: 5 },
+        choiceId: "isoLarge",
+        label: optionLabel("isoLarge"),
+        context: { type: "preflop-vs-open", openBb: moment.decision.largeTarget / 3 },
         actions: [...RANGE_ACTIONS],
       },
     ];
   }
 
-  if (moment.decision.type === "postflop-after-check") {
+  if (moment.decision.type === "postflop-after-checks" && !opponent.folded) {
     return [
       {
         choiceId: "bet33",
@@ -865,15 +782,6 @@ function fishResponseScenarios(moment) {
     ];
   }
 
-  if (moment.decision.type === "postflop-vs-donk") {
-    return [{
-      choiceId: "raise",
-      label: optionLabel("raise"),
-      context: { type: "postflop-vs-raise", board: moment.board },
-      actions: ["fold", "call"],
-    }];
-  }
-
   return [];
 }
 
@@ -882,17 +790,17 @@ function fishActionLabel(action, context) {
   return `${action[0].toUpperCase()}${action.slice(1)}`;
 }
 
-function renderResponseExplorer(moment) {
-  const scenarios = fishResponseScenarios(moment);
+function renderResponseExplorer(moment, opponent) {
+  const scenarios = fishResponseScenarios(moment, opponent);
   if (!scenarios.length) {
     elements.responseExplorer.hidden = true;
     return {
-      range: moment.range,
-      partitions: { current: moment.range },
+      range: opponent.range,
+      partitions: { current: opponent.range },
       actions: ["current"],
       labels: RANGE_ACTION_LABELS,
-      title: `Fish range · ${streetLabel(moment.street)} · current branch`,
-      copy: "Binary range: every exact combo shown here still fits this branch's full action thread.",
+      title: `${opponent.position} range · ${streetLabel(moment.street)} · current branch`,
+      copy: `Binary marginal range for ${opponent.position}: every exact combo shown still fits this seat's full action thread.`,
     };
   }
 
@@ -901,6 +809,7 @@ function renderResponseExplorer(moment) {
     const answeredScenario = scenarios.find((scenario) => scenario.choiceId === moment.answer);
     rangeView = {
       momentId: moment.id,
+      opponentId: opponent.id,
       choiceId: answeredScenario?.choiceId ?? null,
       fishAction: null,
     };
@@ -909,13 +818,13 @@ function renderResponseExplorer(moment) {
 
   const selectedScenario = scenarios.find((scenario) => scenario.choiceId === rangeView.choiceId) ?? null;
   elements.responseSizingOptions.innerHTML = [
-    `<button type="button" class="response-option${selectedScenario ? "" : " selected"}" data-response-choice="">Current branch <b>${moment.range.length}</b></button>`,
+    `<button type="button" class="response-option${selectedScenario ? "" : " selected"}" data-response-choice="">Current branch <b>${opponent.range.length}</b></button>`,
     ...scenarios.map((scenario) =>
       `<button type="button" class="response-option${selectedScenario?.choiceId === scenario.choiceId ? " selected" : ""}" data-response-choice="${scenario.choiceId}">${scenario.label}</button>`),
   ].join("");
   for (const button of elements.responseSizingOptions.querySelectorAll("[data-response-choice]")) {
     button.addEventListener("click", () => {
-      rangeView = { momentId: moment.id, choiceId: button.dataset.responseChoice || null, fishAction: null };
+      rangeView = { momentId: moment.id, opponentId: opponent.id, choiceId: button.dataset.responseChoice || null, fishAction: null };
       selectedRangeClass = null;
       renderRange(moment);
     });
@@ -923,27 +832,27 @@ function renderResponseExplorer(moment) {
 
   if (!selectedScenario) {
     elements.responseExplorerCopy.textContent =
-      "Choose a hero sizing to split this exact range into the fish's fold, call, and raise buckets.";
+      `Choose a hero sizing to split ${opponent.position}'s exact range into fold, call, and raise buckets.`;
     elements.responseActionOptions.innerHTML = "";
     return {
-      range: moment.range,
-      partitions: { current: moment.range },
+      range: opponent.range,
+      partitions: { current: opponent.range },
       actions: ["current"],
       labels: RANGE_ACTION_LABELS,
-      title: `Fish range · ${streetLabel(moment.street)} · current branch`,
+      title: `${opponent.position} range · ${streetLabel(moment.street)} · current branch`,
       copy: "Every shown combo survived the branch so far. Choose a sizing above to inspect the deterministic response split.",
     };
   }
 
   const blockedCards = [...moment.heroCards, ...moment.board];
-  const partitions = partitionFishRange(moment.range, selectedScenario.context, blockedCards);
+  const partitions = partitionFishRange(opponent.range, selectedScenario.context, blockedCards);
   const selectedAction = selectedScenario.actions.includes(rangeView.fishAction)
     ? rangeView.fishAction
     : null;
   elements.responseExplorerCopy.textContent =
     `Facing ${selectedScenario.label}, every surviving combo goes to exactly one action. Select a response to highlight its literal combos.`;
   elements.responseActionOptions.innerHTML = [
-    `<button type="button" class="response-action${selectedAction ? "" : " selected"}" data-fish-action="">Before response <b>${moment.range.length}</b></button>`,
+    `<button type="button" class="response-action${selectedAction ? "" : " selected"}" data-fish-action="">Before response <b>${opponent.range.length}</b></button>`,
     ...selectedScenario.actions.map((action) =>
       `<button type="button" class="response-action${selectedAction === action ? " selected" : ""}" data-fish-action="${action}">${fishActionLabel(action, selectedScenario.context)} <b>${partitions[action]?.length ?? 0}</b></button>`),
   ].join("");
@@ -951,6 +860,7 @@ function renderResponseExplorer(moment) {
     button.addEventListener("click", () => {
       rangeView = {
         momentId: moment.id,
+        opponentId: opponent.id,
         choiceId: selectedScenario.choiceId,
         fishAction: button.dataset.fishAction || null,
       };
@@ -965,12 +875,12 @@ function renderResponseExplorer(moment) {
       fishActionLabel(action, selectedScenario.context),
     ]));
     return {
-      range: moment.range,
+      range: opponent.range,
       partitions,
       actions: selectedScenario.actions,
       labels,
-      title: `Fish range before responding to ${selectedScenario.label}`,
-      copy: "This is the exact range reaching the decision. The response counts above are exhaustive and mutually exclusive.",
+      title: `${opponent.position} range before responding to ${selectedScenario.label}`,
+      copy: `This is ${opponent.position}'s exact marginal range reaching the decision. Response counts are exhaustive and mutually exclusive for this seat.`,
     };
   }
 
@@ -981,7 +891,7 @@ function renderResponseExplorer(moment) {
     labels: {
       [selectedAction]: fishActionLabel(selectedAction, selectedScenario.context),
     },
-    title: `Fish ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} range facing ${selectedScenario.label}`,
+    title: `${opponent.position} ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} range facing ${selectedScenario.label}`,
     copy: `Only exact combos assigned to ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} are shown. There are no mixed actions or probability weights.`,
   };
 }
@@ -1007,7 +917,22 @@ function renderComboDetail(range) {
 }
 
 function renderRange(moment) {
-  const displayed = renderResponseExplorer(moment);
+  const opponent = moment.opponents.find((entry) => entry.id === rangeView.opponentId)
+    ?? moment.opponents.find((entry) => !entry.folded)
+    ?? moment.opponents[0];
+  rangeView.opponentId = opponent.id;
+  elements.rangeOpponentOptions.innerHTML = moment.opponents
+    .map((entry) => `<button type="button" class="response-option opponent-option${entry.id === opponent.id ? " selected" : ""}${entry.folded ? " folded" : ""}" data-range-opponent="${entry.id}"><b>${entry.position}</b><span>${entry.status}</span><small>${entry.range.length} combos</small></button>`)
+    .join("");
+  for (const button of elements.rangeOpponentOptions.querySelectorAll("[data-range-opponent]")) {
+    button.addEventListener("click", () => {
+      rangeView = { momentId: moment.id, opponentId: button.dataset.rangeOpponent, choiceId: null, fishAction: null };
+      selectedRangeClass = null;
+      renderRange(moment);
+    });
+  }
+
+  const displayed = renderResponseExplorer(moment, opponent);
   const displayedRange = displayed.range;
   const summary = summarizeFishRange(displayedRange, moment.board);
   const flatClasses = HAND_CLASSES.flat();
@@ -1046,7 +971,7 @@ function renderRange(moment) {
   elements.rangeTop.innerHTML = displayed.actions
     .map((key) => `<span class="top-class"><i class="range-swatch action-${key}"></i><b>${displayed.labels[key]}</b>${(displayed.partitions[key]?.length ?? 0).toLocaleString("en-US")} combos</span>`)
     .join("");
-  elements.rangeThread.innerHTML = moment.rangeEvents
+  elements.rangeThread.innerHTML = opponent.rangeEvents
     .map((entry) => `<li><strong>${streetLabel(entry.street)}:</strong> ${entry.text.replace(/^\w+:\s*/, "")}</li>`)
     .join("");
   renderComboDetail(displayedRange);
@@ -1054,13 +979,17 @@ function renderRange(moment) {
 
 function renderCards(moment) {
   elements.heroCards.innerHTML = moment.heroCards.map((card) => cardToHtml(card)).join("");
-  if (moment.fishCombo) {
-    elements.fishCards.innerHTML = moment.fishCombo.cards.map((card) => cardToHtml(card)).join("");
-    elements.fishCards.setAttribute("aria-label", `Fish hole cards ${moment.fishCombo.display}`);
-  } else {
-    elements.fishCards.innerHTML = `<span class="card-back">?</span><span class="card-back">?</span>`;
-    elements.fishCards.setAttribute("aria-label", "Fish hole cards hidden");
-  }
+  elements.opponentSeats.innerHTML = moment.opponents.map((opponent) => {
+    const cards = opponent.combo
+      ? opponent.combo.cards.map((card) => cardToHtml(card)).join("")
+      : `<span class="card-back">?</span><span class="card-back">?</span>`;
+    const cardLabel = opponent.combo ? `${opponent.position} cards ${opponent.combo.display}` : `${opponent.position} cards hidden`;
+    return `<div class="seat opponent-seat${opponent.folded ? " folded" : ""}" data-opponent-seat="${opponent.id}">
+      <div class="seat-label"><strong>${opponent.position}</strong><span>${formatMoney(opponent.stack)}</span></div>
+      <div class="card-row compact-cards" aria-label="${cardLabel}">${cards}</div>
+      <div class="seat-action">${opponent.status}</div>
+    </div>`;
+  }).join("");
   const board = [...moment.board];
   elements.boardCards.innerHTML = Array.from({ length: 5 }, (_, index) =>
     board[index] === undefined ? `<span class="empty-card">—</span>` : cardToHtml(board[index]),
@@ -1120,7 +1049,7 @@ function renderDecision(moment) {
   if (!activeMoment && moment.kind === "decision") {
     elements.decisionNote.textContent = "Reviewing an earlier fork. Every action remains selectable; exploring it creates or reopens a saved counterfactual branch without deleting the others.";
   } else if (moment.kind === "complete") {
-    elements.decisionNote.textContent = "Use ← or the branch trail to revisit any earlier fork. Saved alternatives keep their own board, pot, action thread, and exact fish range.";
+    elements.decisionNote.textContent = "Use ← or the branch trail to revisit any earlier fork. Saved alternatives keep their own board, pot, action thread, and every opponent's exact range.";
   } else {
     elements.decisionNote.textContent = "Choose any action for feedback, then explore it. You can return and select every other action or sizing; completed branches stay saved.";
   }
@@ -1151,11 +1080,9 @@ function render() {
   const moment = path[historyIndex];
   if (!moment) return;
   elements.streetPill.textContent = streetLabel(moment.street);
-  elements.spotLabel.textContent = "BTN vs BB fish · $1/$2/$3 live model · 100bb";
+  elements.spotLabel.textContent = `6-handed BTN isolation · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 100bb`;
   elements.potLabel.textContent = formatMoney(moment.pot);
   elements.heroStack.textContent = formatMoney(moment.heroStack);
-  elements.fishStack.textContent = formatMoney(moment.fishStack);
-  elements.fishStatus.textContent = moment.fishStatus;
   const selectedOption = moment.kind === "decision" && moment.answer
     ? moment.decision.options.find((option) => option.id === moment.answer)
     : null;
