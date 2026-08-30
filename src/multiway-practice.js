@@ -44,20 +44,20 @@ function unopenedContext(position, openBb = 4) {
   return { type: "sixmax-unopened", position, openBb };
 }
 
-function afterLimpContext(position, openBb = 4) {
-  return { type: "sixmax-after-limp", position, openBb };
+function afterLimpContext(position, openBb = 4, limperCount = 1) {
+  return { type: "sixmax-after-limp", position, openBb, limperCount };
 }
 
-function vsOpenContext(position, openerPosition, openBb) {
-  return { type: "sixmax-vs-open", position, openerPosition, openBb };
+function vsOpenContext(position, openerPosition, openBb, details = {}) {
+  return { type: "sixmax-vs-open", position, openerPosition, openBb, ...details };
 }
 
-function vsThreeBetContext(position, threeBettorPosition, threeBetBb) {
-  return { type: "preflop-vs-threebet", position, threeBettorPosition, threeBetBb };
+function vsThreeBetContext(position, threeBettorPosition, threeBetBb, details = {}) {
+  return { type: "preflop-vs-threebet", position, threeBettorPosition, threeBetBb, ...details };
 }
 
-function vsFourBetContext(position, fourBettorPosition, fourBetBb) {
-  return { type: "preflop-vs-fourbet", position, fourBettorPosition, fourBetBb };
+function vsFourBetContext(position, fourBettorPosition, fourBetBb, details = {}) {
+  return { type: "preflop-vs-fourbet", position, fourBettorPosition, fourBetBb, ...details };
 }
 
 function limpedPlan({ bigBlind, random }) {
@@ -69,10 +69,17 @@ function limpedPlan({ bigBlind, random }) {
   const firstLimperIndex = Math.min(...[...limperIds].map((id) => EARLY_POSITIONS.indexOf(id)));
   const smallTarget = 15 + Math.max(0, limperCount - 1) * bigBlind;
   const largeTarget = 21 + Math.max(0, limperCount - 1) * bigBlind;
-  const responseContexts = [smallTarget, largeTarget].map((target) => ({
-    type: "preflop-vs-open",
-    openBb: target / bigBlind,
-  }));
+  const responseContextsFor = (id) => {
+    const seat = SIX_HANDED_OPPONENTS.find((entry) => entry.id === id);
+    return [smallTarget, largeTarget].map((target) => ({
+      type: "preflop-vs-open",
+      position: seat.position,
+      openerPosition: "BTN",
+      openBb: target / bigBlind,
+      priorAction: limperIds.has(id) ? "limped" : "blind",
+      coldCallerCount: limperCount,
+    }));
+  };
   const plans = new Map();
 
   for (const id of EARLY_POSITIONS) {
@@ -80,7 +87,7 @@ function limpedPlan({ bigBlind, random }) {
     const index = EARLY_POSITIONS.indexOf(id);
     const context = index <= firstLimperIndex
       ? unopenedContext(seat.position)
-      : afterLimpContext(seat.position);
+      : afterLimpContext(seat.position, 4, limperCount);
     const action = limperIds.has(id) ? "limp" : "fold";
     plans.set(id, {
       action,
@@ -99,9 +106,9 @@ function limpedPlan({ bigBlind, random }) {
     kind: "limped",
     plans,
     constraints: new Map([
-      [designatedLimper, (range) => takesEveryAction(range, responseContexts, "call")],
-      ["bb", (range) => takesEveryAction(range, responseContexts, "call")],
-      ["sb", (range) => range.filter((combo) => responseContexts.every((context) =>
+      [designatedLimper, (range) => takesEveryAction(range, responseContextsFor(designatedLimper), "call")],
+      ["bb", (range) => takesEveryAction(range, responseContextsFor("bb"), "call")],
+      ["sb", (range) => range.filter((combo) => responseContextsFor("sb").every((context) =>
         fishActionForCombo(combo, context) !== "raise"))],
     ]),
     limperCount,
@@ -125,8 +132,12 @@ function raisedPlan({ bigBlind, random }) {
   const caller = SIX_HANDED_OPPONENTS.find((seat) => seat.id === callerId);
   const smallTarget = 48;
   const largeTarget = 60;
-  const threeBetContextsFor = (position) => [smallTarget, largeTarget].map((target) =>
-    vsThreeBetContext(position, "BTN", target / bigBlind));
+  const threeBetContextsFor = (position, priorAction) => [smallTarget, largeTarget].map((target) =>
+    vsThreeBetContext(position, "BTN", target / bigBlind, {
+      priorAction,
+      openerPosition: opener.position,
+      coldCallerCount: 1,
+    }));
   const plans = new Map();
 
   for (const id of EARLY_POSITIONS) {
@@ -156,23 +167,38 @@ function raisedPlan({ bigBlind, random }) {
       continue;
     }
     const action = id === callerId ? "call" : "fold";
+    const coldCallerCount = EARLY_POSITIONS.indexOf(callerId) < index ? 1 : 0;
     plans.set(id, {
       action,
-      context: vsOpenContext(seat.position, opener.position, openBb),
+      context: vsOpenContext(seat.position, opener.position, openBb, {
+        priorAction: "none",
+        coldCallerCount,
+      }),
       committed: action === "call" ? openAmount : 0,
       status: action === "call" ? `Called ${openAmount}` : "Folded preflop",
       text: action === "call" ? `calls ${openAmount}` : "folds",
-      provenance: `Apply the ${seat.position} online loose-passive response: premium-only 3-bets, calls that are too wide, and folds below them.`,
+      provenance: `Apply the ${seat.position} online loose-passive response using the opener's position, size, and any caller already in the pot.`,
     });
   }
 
   const constraints = new Map([
-    [openerId, (range) => takesEveryAction(range, threeBetContextsFor(opener.position), "call")],
-    [callerId, (range) => takesEveryAction(range, threeBetContextsFor(caller.position), "call")],
+    [openerId, (range) => {
+      const contexts = threeBetContextsFor(opener.position, "opened");
+      return actionRange(range, contexts[0], "call")
+        .filter((combo) => fishActionForCombo(combo, contexts[1]) !== "raise");
+    }],
+    [callerId, (range) => {
+      const contexts = threeBetContextsFor(caller.position, "cold-called");
+      return actionRange(range, contexts[0], "call")
+        .filter((combo) => fishActionForCombo(combo, contexts[1]) !== "raise");
+    }],
   ]);
   for (const blindId of ["sb", "bb"]) {
     const blind = SIX_HANDED_OPPONENTS.find((seat) => seat.id === blindId);
-    const context = vsOpenContext(blind.position, opener.position, openBb);
+    const context = vsOpenContext(blind.position, opener.position, openBb, {
+      priorAction: "blind",
+      coldCallerCount: 1,
+    });
     constraints.set(blindId, (range) => range.filter((combo) =>
       fishActionForCombo(combo, context) !== "raise"));
   }
@@ -203,8 +229,12 @@ function threeBetPlan({ bigBlind, random }) {
   const threeBettor = SIX_HANDED_OPPONENTS.find((seat) => seat.id === threeBettorId);
   const smallTarget = 105;
   const largeTarget = 126;
-  const fourBetContextsFor = (position) => [smallTarget, largeTarget].map((target) =>
-    vsFourBetContext(position, "BTN", target / bigBlind));
+  const fourBetContextsFor = (position, priorAction) => [smallTarget, largeTarget].map((target) =>
+    vsFourBetContext(position, "BTN", target / bigBlind, {
+      priorAction,
+      openerPosition: opener.position,
+      threeBettorPosition: threeBettor.position,
+    }));
   const plans = new Map();
 
   for (const id of EARLY_POSITIONS) {
@@ -223,11 +253,14 @@ function threeBetPlan({ bigBlind, random }) {
     if (id === threeBettorId) {
       plans.set(id, {
         action: "raise",
-        context: vsOpenContext(seat.position, opener.position, openBb),
+        context: vsOpenContext(seat.position, opener.position, openBb, {
+          priorAction: "none",
+          coldCallerCount: 0,
+        }),
         committed: threeBetAmount,
         status: `3-bet to ${threeBetAmount}`,
         text: `3-bets to ${threeBetAmount}`,
-        provenance: `Keep only the obvious premium hands this passive ${seat.position} profile reraises; there is no balanced light 3-bet range.`,
+        provenance: `Keep the value-heavy hands this ${seat.position} profile reraises after accounting for the UTG open, position, and lack of dead-money callers.`,
       });
       continue;
     }
@@ -235,31 +268,45 @@ function threeBetPlan({ bigBlind, random }) {
     plans.set(id, {
       action: "fold",
       context: facingThreeBet
-        ? vsThreeBetContext(seat.position, threeBettor.position, threeBetBb)
-        : vsOpenContext(seat.position, opener.position, openBb),
+        ? vsThreeBetContext(seat.position, threeBettor.position, threeBetBb, {
+          priorAction: "none",
+          openerPosition: opener.position,
+        })
+        : vsOpenContext(seat.position, opener.position, openBb, {
+          priorAction: "none",
+          coldCallerCount: 0,
+        }),
       committed: 0,
       status: "Folded preflop",
       text: "folds",
       provenance: facingThreeBet
-        ? "Keep only hands this passive seat releases when an already-strong range reraises."
-        : `Keep hands below this online loose-passive ${seat.position} seat's wide call and premium-only 3-bet ranges.`,
+        ? "Keep hands this seat releases after considering the 3-bet size, positions, and the fact it has not invested voluntarily."
+        : `Keep hands below this online loose-passive ${seat.position} seat's position-aware call and value-reraise ranges.`,
     });
   }
 
-  const openerFacingThreeBet = vsThreeBetContext(opener.position, threeBettor.position, threeBetBb);
+  const openerFacingThreeBet = vsThreeBetContext(opener.position, threeBettor.position, threeBetBb, {
+    priorAction: "opened",
+    openerPosition: opener.position,
+  });
   const constraints = new Map([
-    [openerId, (range) => takesEveryAction(
-      actionRange(range, openerFacingThreeBet, "call"),
-      fourBetContextsFor(opener.position),
+    [openerId, (range) => actionRange(range, openerFacingThreeBet, "call")
+      .filter((combo) => fourBetContextsFor(opener.position, "opened").every((context) =>
+        fishActionForCombo(combo, context) !== "raise"))],
+    [threeBettorId, (range) => takesEveryAction(
+      range,
+      fourBetContextsFor(threeBettor.position, "threebet"),
       "call",
     )],
-    [threeBettorId, (range) => takesEveryAction(range, fourBetContextsFor(threeBettor.position), "call")],
   ]);
   for (const blindId of ["sb", "bb"]) {
     const blind = SIX_HANDED_OPPONENTS.find((seat) => seat.id === blindId);
     const contexts = [
-      vsThreeBetContext(blind.position, threeBettor.position, threeBetBb),
-      ...fourBetContextsFor(blind.position),
+      vsThreeBetContext(blind.position, threeBettor.position, threeBetBb, {
+        priorAction: "blind",
+        openerPosition: opener.position,
+      }),
+      ...fourBetContextsFor(blind.position, "blind"),
     ];
     constraints.set(blindId, (range) => range.filter((combo) => contexts.every((context) =>
       fishActionForCombo(combo, context) !== "raise")));

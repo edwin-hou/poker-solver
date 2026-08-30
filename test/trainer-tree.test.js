@@ -41,7 +41,7 @@ test("fish response partitions are exhaustive, disjoint, and sizing-specific", (
   assertExactPartition(range, small);
   assertExactPartition(range, large);
   assert.ok(small.call.length > large.call.length);
-  assert.equal(small.raise.length, large.raise.length);
+  assert.ok(small.raise.length > large.raise.length);
   assert.ok(small.fold.length < large.fold.length);
 });
 

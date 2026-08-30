@@ -18,14 +18,15 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "online-loose-passive-fish-v3",
+  id: "online-loose-passive-fish-v4",
   label: "Basic loose-passive online fish",
   description:
-    "Understands the rules and obvious hand strength, but has no balanced/GTO range construction: enters too wide, calls too much, defaults to check/call, chases obvious draws, and reraises only a visibly premium-heavy range.",
+    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, defaults to check/call, chases obvious draws, and keeps reraises value-heavy.",
   tendencies: Object.freeze([
     "Shows a high participation rate with much less raising",
     "Enters too many pots and calls opens or isolation raises too wide",
-    "Rarely 3-bets without an obvious premium",
+    "Uses wider value reraises against late opens, steals, and dead money",
+    "Respects early opens and larger reraises more than late or small ones",
     "Never turns TT or 99 into a 4-bet",
     "Checks and calls medium-strength hands",
     "Chases obvious flush and straight draws too often",
@@ -220,6 +221,41 @@ const OBVIOUS_OPEN_RAISES = Object.freeze({
   BB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs", "JTs"]),
 });
 
+const ISOLATION_RAISE_ADDITIONS = Object.freeze({
+  UTG: new Set([]),
+  HJ: new Set(["99", "AQo", "AJs", "KQs"]),
+  CO: new Set(["88", "AQo", "AJo", "KQo", "QJs", "JTs"]),
+  BTN: new Set(["77", "A9s", "AJo", "KQo", "KTs", "QTs", "T9s"]),
+  SB: new Set(["88", "AQo", "AJo", "KQo", "KTs", "QJs"]),
+  BB: new Set(["88", "AQo", "AJo", "KQo", "KTs", "QJs"]),
+});
+
+const THREE_BET_VS_OPENER = Object.freeze({
+  UTG: new Set(["AA", "KK", "QQ", "JJ", "AKs", "AKo", "AQs", "AQo"]),
+  HJ: new Set(["AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"]),
+  CO: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "KQs", "KJs"]),
+  BTN: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "KQs", "KQo", "KJs", "QJs"]),
+  SB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KQo", "KJs", "QJs"]),
+  BB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KQo", "KJs", "QJs"]),
+});
+
+const SQUEEZE_ADDITIONS = Object.freeze({
+  UTG: new Set(["TT", "AJs", "KQs"]),
+  HJ: new Set(["99", "AJo", "KJs", "QJs"]),
+  CO: new Set(["88", "ATs", "KQo", "QJs", "JTs"]),
+  BTN: new Set(["77", "A9s", "KTs", "QTs", "JTs", "T9s"]),
+  SB: new Set(["77", "A9s", "KTs", "QTs", "JTs"]),
+  BB: new Set(["77", "A9s", "KTs", "QTs", "JTs"]),
+});
+
+const LARGE_OPEN_RERAISE_EXCLUSIONS = new Set([
+  "77", "88", "A9s", "ATo", "AJo", "KQo", "KTs", "KJs", "QTs", "QJs", "JTs", "T9s",
+]);
+
+function isLatePosition(position) {
+  return ["CO", "BTN", "SB", "BB"].includes(position);
+}
+
 function loosePassiveEntry(classLabel, position, afterLimp) {
   const { high, low, pair, suited, gap } = classShape(classLabel);
   const later = ["CO", "BTN", "SB", "BB"].includes(position);
@@ -242,31 +278,113 @@ function onlineFishUnopenedAction(classLabel, context) {
   const position = context.position ?? "CO";
   const afterLimp = context.type === "sixmax-after-limp";
   const obviousRaises = OBVIOUS_OPEN_RAISES[position] ?? OBVIOUS_OPEN_RAISES.CO;
-  if (obviousRaises.has(classLabel)) return "raise";
+  const isolationAdds = ISOLATION_RAISE_ADDITIONS[position] ?? ISOLATION_RAISE_ADDITIONS.CO;
+  if (obviousRaises.has(classLabel) || (afterLimp && isolationAdds.has(classLabel))) return "raise";
   return loosePassiveEntry(classLabel, position, afterLimp) ? "limp" : "fold";
 }
 
 function onlineFishFacingOpenAction(classLabel, context) {
-  // This archetype does not find light or balanced 3-bets. It reraises only
-  // hands whose raw strength is obvious, then calls too much underneath them.
-  if (isPremiumThreeBet(classLabel)) return "raise";
-  return callsOpen(classLabel, Number(context.openBb ?? 4)) ? "call" : "fold";
+  const openBb = Number(context.openBb ?? 4);
+  const openerPosition = context.openerPosition ?? "CO";
+  const position = context.position ?? "BB";
+  const priorAction = context.priorAction ?? "none";
+  const coldCallerCount = Math.max(0, Number(context.coldCallerCount ?? 0));
+
+  if (priorAction === "limped") {
+    const limpReraises = openBb >= 7
+      ? new Set(["AA", "KK", "QQ", "AKs"])
+      : new Set(["AA", "KK", "QQ", "JJ", "AKs", "AKo"]);
+    if (limpReraises.has(classLabel)) return "raise";
+    return callsOpen(classLabel, openBb) ? "call" : "fold";
+  }
+
+  const raises = new Set(THREE_BET_VS_OPENER[openerPosition] ?? THREE_BET_VS_OPENER.CO);
+  if (coldCallerCount > 0) {
+    for (const hand of SQUEEZE_ADDITIONS[openerPosition] ?? SQUEEZE_ADDITIONS.CO) raises.add(hand);
+  }
+  if (["SB", "BB"].includes(position) && isLatePosition(openerPosition)) {
+    for (const hand of ["77", "A9s", "KTs", "QTs", "JTs"]) raises.add(hand);
+  }
+  if (openBb >= 5) {
+    for (const hand of LARGE_OPEN_RERAISE_EXCLUSIONS) raises.delete(hand);
+  }
+
+  if (raises.has(classLabel)) return "raise";
+  return callsOpen(classLabel, openBb) ? "call" : "fold";
 }
 
 function onlineFishFacingThreeBetAction(classLabel, context) {
-  const veryLarge = Number(context.threeBetBb ?? 16) >= 20;
-  if (["AA", "KK"].includes(classLabel)) return "raise";
-  if (["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
-  if (!veryLarge && ["JJ", "TT", "99", "AQs", "AQo", "AJs", "KQs"].includes(classLabel)) return "call";
-  if (veryLarge && ["JJ", "TT", "AQs"].includes(classLabel)) return "call";
-  return "fold";
+  const threeBetBb = Number(context.threeBetBb ?? 16);
+  const small = threeBetBb <= 16;
+  const veryLarge = threeBetBb >= 20;
+  const priorAction = context.priorAction ?? "opened";
+  const lateThreeBettor = isLatePosition(context.threeBettorPosition ?? "BTN");
+  const fourBets = new Set(["AA", "KK"]);
+
+  if (priorAction === "opened") {
+    fourBets.add("QQ");
+    fourBets.add("AKs");
+    if (!veryLarge || lateThreeBettor) fourBets.add("AKo");
+    if (small && lateThreeBettor) {
+      fourBets.add("JJ");
+      fourBets.add("AQs");
+    }
+  } else if (priorAction === "cold-called" && small && lateThreeBettor) {
+    fourBets.add("QQ");
+    fourBets.add("AKs");
+  } else if (["blind", "none"].includes(priorAction) && small) {
+    fourBets.add("QQ");
+  }
+
+  // The model can widen logically, but it does not discover solver-style
+  // TT/99 4-bets. Those hands remain calls or folds in every context.
+  if (!["TT", "99"].includes(classLabel) && fourBets.has(classLabel)) return "raise";
+
+  if (priorAction === "opened") {
+    if (veryLarge) {
+      return ["QQ", "JJ", "TT", "AKs", "AKo", "AQs"].includes(classLabel) ? "call" : "fold";
+    }
+    return ["QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"].includes(classLabel)
+      ? "call"
+      : "fold";
+  }
+
+  if (priorAction === "cold-called") {
+    const calls = veryLarge
+      ? ["QQ", "JJ", "TT", "AKs", "AKo", "AQs"]
+      : ["QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"];
+    return calls.includes(classLabel) ? "call" : "fold";
+  }
+
+  const coldCalls = veryLarge
+    ? ["QQ", "JJ", "AKs", "AKo"]
+    : ["QQ", "JJ", "TT", "AKs", "AKo", "AQs", "KQs"];
+  return coldCalls.includes(classLabel) ? "call" : "fold";
 }
 
 function onlineFishFacingFourBetAction(classLabel, context) {
   const veryLarge = Number(context.fourBetBb ?? 35) >= 40;
+  const priorAction = context.priorAction ?? "threebet";
+
+  if (priorAction === "threebet") {
+    if (["AA", "KK"].includes(classLabel)) return "raise";
+    const calls = veryLarge
+      ? ["QQ", "AKs", "AKo"]
+      : ["QQ", "JJ", "AKs", "AKo", "AQs"];
+    return calls.includes(classLabel) ? "call" : "fold";
+  }
+
+  if (priorAction === "opened") {
+    if (classLabel === "AA") return "raise";
+    const calls = veryLarge
+      ? ["KK", "QQ", "AKs"]
+      : ["KK", "QQ", "AKs", "AKo"];
+    return calls.includes(classLabel) ? "call" : "fold";
+  }
+
   if (["AA", "KK"].includes(classLabel)) return "raise";
-  if (["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
-  if (!veryLarge && ["JJ", "AQs"].includes(classLabel)) return "call";
+  if (!veryLarge && ["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
+  if (veryLarge && ["QQ", "AKs"].includes(classLabel)) return "call";
   return "fold";
 }
 
@@ -286,9 +404,11 @@ export function fishActionForCombo(combo, context = {}) {
   if (type === "preflop-vs-fourbet") return onlineFishFacingFourBetAction(combo.classLabel, context);
 
   if (type === "preflop-vs-open") {
-    const openBb = clamp(Number(context.openBb ?? 3.3), 1.5, 8);
-    if (isPremiumThreeBet(combo.classLabel)) return "raise";
-    return callsOpen(combo.classLabel, openBb) ? "call" : "fold";
+    return onlineFishFacingOpenAction(combo.classLabel, {
+      position: "BB",
+      openerPosition: "CO",
+      ...context,
+    });
   }
 
   const board = context.board ?? [];
