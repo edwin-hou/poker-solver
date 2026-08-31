@@ -1,6 +1,7 @@
 export * from "./cards.js";
 export * from "./range.js";
 export * from "./fish-model.js";
+export * from "./hero-exploit.js";
 export * from "./hand-history-range.js";
 export * from "./multiway-practice.js";
 export * from "./trainer-tree.js";
