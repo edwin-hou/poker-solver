@@ -1740,6 +1740,22 @@ function renderRange(moment) {
   renderComboDetail(displayedRange, displayed.context);
 }
 
+function revealOpponentRange(moment, opponentId = null) {
+  if (!moment) return;
+  const decisionOpponentId = moment.decision?.bettorId ?? moment.decision?.raiserId;
+  const opponent = moment.opponents.find((entry) => entry.id === opponentId)
+    ?? moment.opponents.find((entry) => entry.id === rangeView.opponentId)
+    ?? moment.opponents.find((entry) => entry.id === decisionOpponentId)
+    ?? moment.opponents.find((entry) => !entry.folded)
+    ?? moment.opponents[0];
+  if (!opponent) return;
+  rangeVisible = true;
+  rangeView = { momentId: moment.id, opponentId: opponent.id, choiceId: null, fishAction: null };
+  selectedRangeClass = null;
+  render();
+  elements.rangePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderCards(moment) {
   elements.heroCards.innerHTML = moment.heroCards.map((card) => cardToHtml(card)).join("");
   elements.opponentSeats.innerHTML = moment.opponents.map((opponent) => {
@@ -1751,8 +1767,12 @@ function renderCards(moment) {
       <div class="seat-label"><strong>${opponent.position}</strong><span>${formatMoney(opponent.stack)}</span></div>
       <div class="card-row compact-cards" aria-label="${cardLabel}">${cards}</div>
       <div class="seat-action">${opponent.status}</div>
+      <button type="button" class="seat-range-button" data-reveal-opponent-range="${opponent.id}" aria-label="Reveal ${opponent.position} range">Reveal range</button>
     </div>`;
   }).join("");
+  for (const button of elements.opponentSeats.querySelectorAll("[data-reveal-opponent-range]")) {
+    button.addEventListener("click", () => revealOpponentRange(moment, button.dataset.revealOpponentRange));
+  }
   const board = [...moment.board];
   elements.boardCards.innerHTML = Array.from({ length: 5 }, (_, index) =>
     board[index] === undefined ? `<span class="empty-card">—</span>` : cardToHtml(board[index]),
@@ -1812,7 +1832,7 @@ function renderDecision(moment) {
   }
 
   if (!answerRevealed) {
-    elements.decisionNote.textContent = "Choose an action first. Grading, strategy explanations, and opponent ranges unlock only after you commit to a decision.";
+    elements.decisionNote.textContent = "Choose an action first. Grading and strategy explanations unlock only after you commit; each opponent's independent range is available from their seat at any time.";
   } else if (!activeMoment && moment.kind === "decision") {
     elements.decisionNote.textContent = "Reviewing an earlier fork. Every action remains selectable; exploring it creates or reopens a saved counterfactual branch without deleting the others.";
   } else if (moment.kind === "complete") {
@@ -1846,7 +1866,6 @@ function render() {
   const path = activePath();
   const moment = path[historyIndex];
   if (!moment) return;
-  const answerRevealed = moment.kind !== "decision" || Boolean(moment.answer);
   elements.streetPill.textContent = streetLabel(moment.street);
   elements.spotLabel.textContent = `${moment.spotLabel} · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 150bb`;
   elements.potLabel.textContent = formatMoney(moment.pot);
@@ -1864,9 +1883,7 @@ function render() {
   renderCards(moment);
   renderDecision(moment);
   renderBranchTrail(path);
-  elements.revealRange.hidden = !answerRevealed;
-  if (!answerRevealed) rangeVisible = false;
-  if (rangeVisible && answerRevealed) {
+  if (rangeVisible) {
     elements.rangePanel.hidden = false;
     renderRange(moment);
   } else {
@@ -2043,11 +2060,7 @@ elements.historyForward.addEventListener("click", () => {
 });
 
 elements.revealRange.addEventListener("click", () => {
-  const moment = currentMoment();
-  if (moment?.kind === "decision" && !moment.answer) return;
-  rangeVisible = true;
-  render();
-  elements.rangePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  revealOpponentRange(currentMoment());
 });
 
 elements.hideRange.addEventListener("click", () => {
