@@ -18,7 +18,7 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "line-aware-live-recreational-v8",
+  id: "line-aware-live-recreational-v9",
   label: "Line-aware low-stakes live recreational",
   description:
     "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums and good-looking suited broadways, and bluffs only in recognizable population lines rather than at equilibrium frequencies.",
@@ -29,6 +29,7 @@ export const FISH_PROFILE = Object.freeze({
     "Respects early opens and larger reraises more than late or small ones",
     "Does not release AK or suited AQ preflop after voluntarily building a pot",
     "Gives KJs, QJs, and JTs one extra call against a small reraise after entering, but releases them to larger 3-bets and every 4-bet",
+    "Splits exact QQ and JJ combos between calls and 4-bets instead of treating either pair as a pure 4-bet",
     "Peels one extra small postflop bet with missed AK/AQ, but releases them to ordinary pressure",
     "Never turns TT or 99 into a 4-bet",
     "Checks medium showdown value instead of converting it into a balance bluff",
@@ -382,6 +383,18 @@ function fishDecision(action, perception, reason, details = {}) {
 function preflopFishDecision(combo, context, action) {
   const perception = fishPerceptionForCombo(combo);
   const openBb = Number(context.openBb ?? context.threeBetBb ?? context.fourBetBb ?? 0);
+  const mixedPairResponse = context.type === "preflop-vs-threebet"
+    && ["QQ", "JJ"].includes(combo.classLabel)
+    && ["raise", "call"].includes(action);
+  if (mixedPairResponse) {
+    return fishDecision(
+      action,
+      perception,
+      action === "raise"
+        ? `This exact ${combo.classLabel} combo represents the part of the recreational population that fast-plays the premium pair as a 4-bet. The suit assignment is only a deterministic visualization of player-to-player variation.`
+        : `This exact ${combo.classLabel} combo represents the part of the recreational population that calls the 3-bet to see a flop rather than building a 4-bet pot. The suits themselves have no strategic significance.`,
+    );
+  }
   if (action === "raise") {
     return fishDecision(action, perception, "This looks like obvious value or a straightforward isolation spot, so the fish raises without constructing a balanced range.");
   }
@@ -547,21 +560,21 @@ function actionUnopened(classLabel) {
 }
 
 const OBVIOUS_OPEN_RAISES = Object.freeze({
-  UTG: new Set(["AA", "KK", "QQ", "JJ", "AKs", "AKo", "AQs", "AQo", "KQs"]),
-  HJ: new Set(["AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"]),
-  CO: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs"]),
-  BTN: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "KQs", "KQo", "KJs", "QJs", "JTs"]),
-  SB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs", "JTs"]),
-  BB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "KQs", "KJs", "QJs", "JTs"]),
+  UTG: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "ATs", "KQs", "KJs", "QJs"]),
+  HJ: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "A9s", "KQs", "KQo", "KJs", "KTs", "QJs", "QTs", "JTs"]),
+  CO: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A8s", "KQs", "KQo", "KJs", "KJo", "KTs", "QJs", "QJo", "QTs", "JTs", "T9s"]),
+  BTN: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "55", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A9o", "A8s", "A8o", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s", "KQs", "KQo", "KJs", "KJo", "KTs", "KTo", "K9s", "K8s", "QJs", "QJo", "QTs", "QTo", "Q9s", "JTs", "JTo", "J9s", "T9s", "98s", "87s", "76s", "65s"]),
+  SB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A9o", "A8s", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s", "KQs", "KQo", "KJs", "KJo", "KTs", "KTo", "K9s", "QJs", "QJo", "QTs", "JTs", "T9s"]),
+  BB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A9o", "A8s", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s", "KQs", "KQo", "KJs", "KJo", "KTs", "KTo", "K9s", "QJs", "QJo", "QTs", "JTs", "T9s"]),
 });
 
 const ISOLATION_RAISE_ADDITIONS = Object.freeze({
   UTG: new Set([]),
-  HJ: new Set(["99", "AQo", "AJs", "KQs"]),
-  CO: new Set(["88", "AQo", "AJo", "KQo", "QJs", "JTs"]),
-  BTN: new Set(["77", "A9s", "AJo", "KQo", "KTs", "QTs", "T9s"]),
-  SB: new Set(["88", "AQo", "AJo", "KQo", "KTs", "QJs"]),
-  BB: new Set(["88", "AQo", "AJo", "KQo", "KTs", "QJs"]),
+  HJ: new Set(["66", "A8s", "K9s", "J9s", "T9s"]),
+  CO: new Set(["55", "A7s", "A9o", "K9s", "Q9s", "J9s", "98s"]),
+  BTN: new Set(["44", "33", "A7o", "K9o", "Q9o", "J8s", "T8s", "98o", "86s", "75s"]),
+  SB: new Set(["55", "A8s", "A9o", "K9s", "Q9s", "J9s", "T9s"]),
+  BB: new Set(["55", "A8s", "A9o", "K9s", "Q9s", "J9s", "T9s"]),
 });
 
 const THREE_BET_VS_OPENER = Object.freeze({
@@ -647,7 +660,27 @@ function onlineFishFacingOpenAction(classLabel, context) {
   return callsOpen(classLabel, openBb) ? "call" : "fold";
 }
 
-function onlineFishFacingThreeBetAction(classLabel, context) {
+const PAIR_MIX_ORDER = Object.freeze(["03", "12", "02", "13", "01", "23"]);
+
+function pairMixIndex(combo) {
+  const key = combo.cards.map(suitIndex).sort((a, b) => a - b).join("");
+  return PAIR_MIX_ORDER.indexOf(key);
+}
+
+function mixedPairFourBet(combo, threeBetBb) {
+  let mixesBySize = 0;
+  if (combo.classLabel === "QQ") {
+    mixesBySize = threeBetBb <= 16 ? 3 : threeBetBb < 20 ? 2 : 1;
+  } else if (combo.classLabel === "JJ" && threeBetBb <= 16) {
+    mixesBySize = 2;
+  }
+
+  const mixIndex = pairMixIndex(combo);
+  return mixIndex >= 0 && mixIndex < mixesBySize;
+}
+
+function onlineFishFacingThreeBetAction(combo, context) {
+  const classLabel = combo.classLabel;
   const threeBetBb = Number(context.threeBetBb ?? 16);
   const small = threeBetBb <= 16;
   const veryLarge = threeBetBb >= 20;
@@ -672,6 +705,9 @@ function onlineFishFacingThreeBetAction(classLabel, context) {
 
   // The model can widen logically, but it does not discover solver-style
   // TT/99 4-bets. Those hands remain calls or folds in every context.
+  if (["QQ", "JJ"].includes(classLabel) && fourBets.has(classLabel)) {
+    return mixedPairFourBet(combo, threeBetBb) ? "raise" : "call";
+  }
   if (!["TT", "99"].includes(classLabel) && fourBets.has(classLabel)) return "raise";
 
   // Recognizable premiums are psychologically difficult for this profile to
@@ -753,7 +789,7 @@ export function fishDecisionForCombo(combo, context = {}) {
     return preflopFishDecision(combo, context, onlineFishFacingOpenAction(combo.classLabel, context));
   }
   if (type === "preflop-vs-threebet") {
-    return preflopFishDecision(combo, context, onlineFishFacingThreeBetAction(combo.classLabel, context));
+    return preflopFishDecision(combo, context, onlineFishFacingThreeBetAction(combo, context));
   }
   if (type === "preflop-vs-fourbet") {
     return preflopFishDecision(combo, context, onlineFishFacingFourBetAction(combo.classLabel, context));
