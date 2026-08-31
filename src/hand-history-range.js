@@ -83,12 +83,14 @@ function observeRange(state, context, action, line, warnings) {
     );
     state.lastFishAction = action;
     state.streetLastFishAction = action;
+    state.streetLastFishContext = context;
     const event = {
       street: state.street,
       action,
       text: line,
       before,
       after: state.range.length,
+      context,
     };
     state.events.push(event);
     return event;
@@ -132,6 +134,7 @@ export function analyzeFishHandHistory(raw = {}) {
     pendingHeroBet: null,
     lastFishAction: null,
     streetLastFishAction: null,
+    streetLastFishContext: null,
   };
   const streetSnapshots = [];
 
@@ -143,6 +146,7 @@ export function analyzeFishHandHistory(raw = {}) {
       range: [...state.range],
       summary: summarizeFishRange(state.range, state.board),
       lastFishAction: state.streetLastFishAction,
+      lastFishContext: state.streetLastFishContext,
       checkpoint: event?.text ?? "Starting unblocked range",
       eventCount: state.events.length,
     };
@@ -164,6 +168,7 @@ export function analyzeFishHandHistory(raw = {}) {
       state.fishCommitted = 0;
       state.pendingHeroBet = null;
       state.streetLastFishAction = null;
+      state.streetLastFishContext = null;
       const event = {
         street: nextStreet,
         action: "board",

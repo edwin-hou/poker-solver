@@ -519,6 +519,24 @@ body {
   font-size: 10px;
   font-weight: 750;
 }
+.exact-combo-thought {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid rgba(102,227,196,.18);
+  border-left: 4px solid var(--range-current);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+}
+.exact-combo-thought.action-fold { border-left-color: var(--range-fold); }
+.exact-combo-thought.action-call { border-left-color: var(--range-call); }
+.exact-combo-thought.action-raise { border-left-color: var(--range-raise); }
+.exact-combo-thought.action-check { border-left-color: var(--range-check); }
+.exact-combo-thought.action-bet { border-left-color: var(--range-bet); }
+.exact-combo-thought strong { color: #f3f8fc; font-size: 10px; }
+.exact-combo-thought span { color: #bcd0df; font-size: 9px; font-weight: 700; }
+.exact-combo-thought small { color: var(--muted); font-size: 9px; line-height: 1.4; }
 .range-sidebar { display: grid; gap: 18px; align-content: start; }
 .range-stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .range-stat-row > div { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.025); }

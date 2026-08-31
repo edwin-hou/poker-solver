@@ -12,6 +12,7 @@ import {
   estimateHeroMultiwayEquity,
   evaluate7,
   filterFishRange,
+  fishDecisionForCombo,
   addTrainerTreeNode,
   observeFishAction,
   partitionFishRange,
@@ -1255,6 +1256,7 @@ function renderResponseExplorer(moment, opponent) {
       partitions: { current: opponent.range },
       actions: ["current"],
       labels: RANGE_ACTION_LABELS,
+      context: null,
       title: `${opponent.position} range · ${streetLabel(moment.street)} · current branch`,
       copy: `Binary marginal range for ${opponent.position}: every exact combo shown still fits this seat's full action thread.`,
     };
@@ -1295,6 +1297,7 @@ function renderResponseExplorer(moment, opponent) {
       partitions: { current: opponent.range },
       actions: ["current"],
       labels: RANGE_ACTION_LABELS,
+      context: null,
       title: `${opponent.position} range · ${streetLabel(moment.street)} · current branch`,
       copy: "Every shown combo survived the branch so far. Choose a sizing above to inspect the deterministic response split.",
     };
@@ -1335,6 +1338,7 @@ function renderResponseExplorer(moment, opponent) {
       partitions,
       actions: selectedScenario.actions,
       labels,
+      context: selectedScenario.context,
       title: `${opponent.position} range before responding to ${selectedScenario.label}`,
       copy: `This is ${opponent.position}'s exact marginal range reaching the decision. Response counts are exhaustive and mutually exclusive for this seat.`,
     };
@@ -1347,12 +1351,13 @@ function renderResponseExplorer(moment, opponent) {
     labels: {
       [selectedAction]: fishActionLabel(selectedAction, selectedScenario.context),
     },
+    context: selectedScenario.context,
     title: `${opponent.position} ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} range facing ${selectedScenario.label}`,
     copy: `Only exact combos assigned to ${fishActionLabel(selectedAction, selectedScenario.context).toLowerCase()} are shown. There are no mixed actions or probability weights.`,
   };
 }
 
-function renderComboDetail(range) {
+function renderComboDetail(range, context) {
   const combos = selectedRangeClass
     ? range.filter((entry) => entry.classLabel === selectedRangeClass)
     : [];
@@ -1365,11 +1370,20 @@ function renderComboDetail(range) {
 
   elements.comboDetailTitle.textContent = `${selectedRangeClass} · ${combos.length} exact combo${combos.length === 1 ? "" : "s"}`;
   elements.comboDetailCopy.textContent = combos.length
-    ? "These are the literal suit combinations assigned to the selected range or fish response."
+    ? context
+      ? "Each exact combo is played from the fish's visible-hand perspective. The explanation is the deterministic reason for its action."
+      : "These are the literal suit combinations assigned to the selected range. Choose a facing size to see the fish's thought process."
     : "No exact suit combinations from this hand class take the selected action.";
-  elements.comboDetailList.innerHTML = combos
-    .map((entry) => `<span class="exact-combo">${entry.display}</span>`)
-    .join("");
+  elements.comboDetailList.innerHTML = combos.map((entry) => {
+    if (!context) return `<span class="exact-combo">${entry.display}</span>`;
+    const decision = fishDecisionForCombo(entry, context);
+    const action = fishActionLabel(decision.action, context);
+    return `<div class="exact-combo-thought action-${decision.action}">
+      <strong>${entry.display} · ${action}</strong>
+      <span>Fish sees: ${decision.perception}</span>
+      <small>${decision.reason}</small>
+    </div>`;
+  }).join("");
 }
 
 function renderRange(moment) {
@@ -1430,7 +1444,7 @@ function renderRange(moment) {
   elements.rangeThread.innerHTML = opponent.rangeEvents
     .map((entry) => `<li><strong>${streetLabel(entry.street)}:</strong> ${entry.text.replace(/^\w+:\s*/, "")}</li>`)
     .join("");
-  renderComboDetail(displayedRange);
+  renderComboDetail(displayedRange, displayed.context);
 }
 
 function renderCards(moment) {
@@ -1564,7 +1578,7 @@ function historyActionLabel(action) {
   return RANGE_ACTION_LABELS[action] ?? streetLabel(action);
 }
 
-function renderHistoryComboDetail(range) {
+function renderHistoryComboDetail(range, snapshot) {
   const combos = selectedHistoryRangeClass
     ? range.filter((entry) => entry.classLabel === selectedHistoryRangeClass)
     : [];
@@ -1576,11 +1590,19 @@ function renderHistoryComboDetail(range) {
   }
   elements.historyComboTitle.textContent = `${selectedHistoryRangeClass} · ${combos.length} exact combo${combos.length === 1 ? "" : "s"}`;
   elements.historyComboCopy.textContent = combos.length
-    ? "Every listed combination survived the same blocker and action filters from the pasted history."
+    ? snapshot.lastFishContext
+      ? `Every listed combination survived the same prior thread and takes the recorded ${snapshot.lastFishAction} for the visible reason shown below.`
+      : "Every listed combination survived the same blocker and action filters from the pasted history."
     : "No exact combinations from this class remain.";
-  elements.historyComboList.innerHTML = combos
-    .map((entry) => `<span class="exact-combo">${entry.display}</span>`)
-    .join("");
+  elements.historyComboList.innerHTML = combos.map((entry) => {
+    if (!snapshot.lastFishContext) return `<span class="exact-combo">${entry.display}</span>`;
+    const decision = fishDecisionForCombo(entry, snapshot.lastFishContext);
+    return `<div class="exact-combo-thought action-${decision.action}">
+      <strong>${entry.display} · ${historyActionLabel(decision.action)}</strong>
+      <span>Fish sees: ${decision.perception}</span>
+      <small>${decision.reason}</small>
+    </div>`;
+  }).join("");
 }
 
 function renderHistoryStreetTabs(result, selectedSnapshot) {
@@ -1667,11 +1689,11 @@ function renderHistoryAnalysis(result) {
       for (const cell of elements.historyRangeGrid.querySelectorAll("[data-history-range-class]")) {
         cell.classList.toggle("selected", cell === button);
       }
-      renderHistoryComboDetail(snapshot.range);
+      renderHistoryComboDetail(snapshot.range, snapshot);
     });
   }
   elements.historyRangeLegend.innerHTML = `<span><i class="range-swatch action-${action}"></i>${snapshot.lastFishAction ? `${labels[action]} on ${streetLabel(snapshot.street)}'s last Fish action` : `Range after ${streetLabel(snapshot.street)} blockers`}</span>`;
-  renderHistoryComboDetail(snapshot.range);
+  renderHistoryComboDetail(snapshot.range, snapshot);
 }
 
 function analyzeEnteredHistory() {

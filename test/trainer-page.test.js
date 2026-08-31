@@ -41,6 +41,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /missed big aces peel only small postflop bets/);
   assert.match(trainer, /Medium showdown value checks instead of becoming a paired-board bluff/);
   assert.match(trainer, /position, sizing, dead money, and what that player did earlier/);
+  assert.match(trainer, /every exact combo is played from the fish's perspective/);
   assert.match(trainer, /150bb/);
   assert.match(trainer, /\$450/);
   assert.match(trainer, /fold,\s+limp, open-raise, call, or 3-bet/);
@@ -60,7 +61,10 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /analyzeFishHandHistory/);
   assert.match(trainerJs, /renderHistoryStreetTabs/);
   assert.match(trainerJs, /streetSnapshots/);
+  assert.match(trainerJs, /lastFishContext/);
   assert.match(trainerJs, /rangeCellGradient/);
+  assert.match(trainerJs, /fishDecisionForCombo/);
+  assert.match(trainerJs, /Fish sees:/);
   assert.match(trainerJs, /Explore this branch/);
   assert.match(trainerJs, /View saved branch/);
   assert.match(trainerJs, /choiceReasons/);
@@ -78,11 +82,14 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerCss, /\.branch-trail/);
   assert.match(trainerCss, /\.response-explorer/);
   assert.match(trainerCss, /\.exact-combo-list/);
+  assert.match(trainerCss, /\.exact-combo-thought/);
   assert.match(trainerCss, /\.opponent-seats/);
   assert.match(trainerCss, /\.opponent-range-picker/);
 
   assert.match(fishModel, /Deterministic novice action rule/);
   assert.match(fishModel, /fishActionForCombo/);
+  assert.match(fishModel, /fishDecisionForCombo/);
+  assert.match(fishModel, /fishPerceptionForCombo/);
   assert.match(fishModel, /partitionFishRange/);
   assert.match(fishModel, /fishRangeContinuingVsOpenSizes/);
   assert.doesNotMatch(fishModel, /fishActionProbabilities/);
