@@ -324,6 +324,17 @@ test("board-only draw texture is scary but is not mistaken for the fish's own dr
   );
 });
 
+test("a shiny preflop premium is relabeled when it makes a real postflop hand", () => {
+  const board = parseCards("9d Ks 3d Jd Ts", { exact: 5 });
+  const range = createFishRange({ board });
+  const aceQueen = exactCombo(range, "As Qs");
+  assert.ok(aceQueen);
+
+  const perception = fishPerceptionForCombo(aceQueen, board);
+  assert.equal(perception.madeHand, "straight");
+  assert.doesNotMatch(perception.label, /missed AK\/AQ/);
+});
+
 test("the fish distinguishes an affordable gutshot from an overpriced chase", () => {
   const flop = parseCards("9c 8d 2s", { exact: 3 });
   const range = createFishRange({ board: flop });
@@ -389,6 +400,136 @@ test("genuine two pair still takes the fish model's face-up value line", () => {
     fishActionForCombo(queenEight, { type: "postflop-vs-bet", board, betFraction: 0.75 }),
     "raise",
   );
+});
+
+test("heads-up donk bluffs stay small while the same air checks multiway", () => {
+  const board = parseCards("9c 6d 2s", { exact: 3 });
+  const range = createFishRange({ board });
+  const overcards = exactCombo(range, "Ah Kd");
+  const weakTopPair = exactCombo(range, "9h 5d");
+  assert.ok(overcards && weakTopPair);
+
+  const smallHeadsUpDonk = {
+    type: "postflop-first",
+    board,
+    headsUp: true,
+    opponentCount: 1,
+    donk: true,
+    wasPreflopAggressor: false,
+    betFraction: 0.33,
+  };
+  const decision = fishDecisionForCombo(overcards, smallHeadsUpDonk);
+  assert.equal(decision.action, "bet");
+  assert.equal(decision.intent, "bluff");
+  assert.match(decision.reason, /heads-up donk/i);
+
+  assert.equal(fishActionForCombo(overcards, { ...smallHeadsUpDonk, betFraction: 0.75 }), "check");
+  assert.equal(fishActionForCombo(overcards, {
+    ...smallHeadsUpDonk,
+    type: "postflop-multiway-first",
+    headsUp: false,
+    opponentCount: 3,
+  }), "check");
+  assert.equal(fishDecisionForCombo(weakTopPair, smallHeadsUpDonk).intent, "value");
+  assert.equal(fishActionForCombo(weakTopPair, smallHeadsUpDonk), "bet");
+  assert.equal(fishActionForCombo(weakTopPair, {
+    ...smallHeadsUpDonk,
+    type: "postflop-multiway-first",
+    headsUp: false,
+    opponentCount: 3,
+  }), "check");
+});
+
+test("small flop bets can trigger a draw raise but turn and multiway raises remain value-heavy", () => {
+  const flop = parseCards("Qs 7s 2s", { exact: 3 });
+  const turn = parseCards("Qs 7s 2s 9d", { exact: 4 });
+  const range = createFishRange({ board: flop });
+  const nutDraw = exactCombo(range, "As Kh");
+  assert.ok(nutDraw);
+
+  const headsUpFlop = fishDecisionForCombo(nutDraw, {
+    type: "postflop-vs-bet",
+    board: flop,
+    betFraction: 0.33,
+    headsUp: true,
+    opponentCount: 1,
+  });
+  assert.equal(headsUpFlop.action, "raise");
+  assert.equal(headsUpFlop.intent, "semi-bluff");
+
+  assert.equal(fishActionForCombo(nutDraw, {
+    type: "postflop-vs-bet",
+    board: flop,
+    betFraction: 0.33,
+    headsUp: false,
+    opponentCount: 3,
+  }), "call");
+  assert.equal(fishActionForCombo(nutDraw, {
+    type: "postflop-vs-bet",
+    board: turn,
+    betFraction: 0.33,
+    headsUp: true,
+    opponentCount: 1,
+    previousFishAction: "call",
+  }), "call");
+});
+
+test("recognizable turn bluff triggers do not turn showdown value into a bluff", () => {
+  const aceTurn = parseCards("9c 6d 2s Ah", { exact: 4 });
+  const pairedTurn = parseCards("Qc 8d 2s 8h", { exact: 4 });
+  const range = createFishRange({ board: aceTurn });
+  const kingQueen = exactCombo(range, "Kh Qd");
+  const sevens = exactCombo(range, "7c 7d");
+  assert.ok(kingQueen && sevens);
+
+  const aceBarrel = fishDecisionForCombo(kingQueen, {
+    type: "postflop-first",
+    board: aceTurn,
+    checkedTo: true,
+    inPosition: true,
+    headsUp: true,
+    wasPreflopAggressor: true,
+    previousFishAction: "bet",
+    betFraction: 0.66,
+  });
+  assert.equal(aceBarrel.action, "bet");
+  assert.equal(aceBarrel.intent, "bluff");
+  assert.match(aceBarrel.reason, /ace turn/i);
+
+  const pairedTurnSevens = exactCombo(createFishRange({ board: pairedTurn }), "7c 7d");
+  assert.ok(pairedTurnSevens);
+  assert.equal(fishActionForCombo(pairedTurnSevens, {
+    type: "postflop-first",
+    board: pairedTurn,
+    checkedTo: true,
+    headsUp: true,
+    previousFishAction: "bet",
+  }), "check");
+});
+
+test("river blocker bluff requires carried aggression and a large size", () => {
+  const river = parseCards("Ks 7s 2h 9d 3s", { exact: 5 });
+  const range = createFishRange({ board: river });
+  const blocker = exactCombo(range, "As Qh");
+  assert.ok(blocker);
+
+  const carriedLine = {
+    type: "postflop-first",
+    board: river,
+    headsUp: true,
+    checkedTo: true,
+    inPosition: true,
+    previousFishAction: "bet",
+    barrelCount: 2,
+    betFraction: 1.25,
+  };
+  const decision = fishDecisionForCombo(blocker, carriedLine);
+  assert.equal(decision.action, "bet");
+  assert.equal(decision.intent, "bluff");
+  assert.match(decision.reason, /nut-blocker|blocker/i);
+
+  assert.equal(fishActionForCombo(blocker, { ...carriedLine, betFraction: 0.50 }), "check");
+  assert.equal(fishActionForCombo(blocker, { ...carriedLine, barrelCount: 0, passiveRiverStab: true }), "check");
 });
 
 test("range summaries report literal combo counts and hand-type buckets", () => {

@@ -5,6 +5,7 @@ import {
   analyzeFishHandHistory,
   createFishRange,
   fishActionForCombo,
+  fishDecisionForCombo,
   fishRangeContinuingVsOpenSizes,
   preflopLookupStrategyForClass,
 } from "../src/index.js";
@@ -150,4 +151,92 @@ Fish calls $8`,
   assert.equal(flopSnapshot.lastFishContext.type, "postflop-vs-bet");
   assert.ok(flopSnapshot.range.every((combo) =>
     fishActionForCombo(combo, flopSnapshot.lastFishContext) === "call"));
+});
+
+test("hand-history estimator treats small heads-up donks as bluffier than large donks", () => {
+  const common = {
+    heroCards: "Qh Qd",
+    heroName: "Hero",
+    fishName: "Fish",
+    bigBlind: 3,
+    startingPot: 6,
+  };
+  const small = analyzeFishHandHistory({
+    ...common,
+    history: `Hero raises to $10
+Fish calls $10
+Flop: 9c 6d 2s
+Fish bets $5`,
+  });
+  const large = analyzeFishHandHistory({
+    ...common,
+    history: `Hero raises to $10
+Fish calls $10
+Flop: 9c 6d 2s
+Fish bets $20`,
+  });
+
+  assert.equal(small.warnings.length, 0);
+  assert.equal(large.warnings.length, 0);
+  assert.ok(small.range.some((combo) => combo.classLabel === "A5o"));
+  assert.ok(!large.range.some((combo) => combo.classLabel === "A5o"));
+  assert.ok(small.streetSnapshots.at(-1).lastFishContext.donk);
+});
+
+test("hand-history estimator carries an actual blocker bluff through all three streets", () => {
+  const result = analyzeFishHandHistory({
+    heroCards: "Qc Qd",
+    heroName: "Hero",
+    fishName: "Fish",
+    bigBlind: 3,
+    startingPot: 6,
+    history: `Hero raises to $10
+Fish calls $10
+Flop: Ks 7s 2s
+Hero checks
+Fish bets $5
+Hero calls $5
+Turn: 9d
+Hero checks
+Fish bets $10
+Hero calls $10
+River: 3c
+Hero checks
+Fish bets $80`,
+  });
+
+  assert.equal(result.warnings.length, 0);
+  const blocker = result.range.find((combo) => combo.display === "As5h");
+  const river = result.streetSnapshots.at(-1);
+  assert.ok(blocker, "the literal ace-of-spades blocker bluff should survive the threaded line");
+  assert.equal(river.lastFishContext.barrelCount, 2);
+  assert.equal(fishDecisionForCombo(blocker, river.lastFishContext).intent, "bluff");
+});
+
+test("passive river stabs stay value-only instead of inheriting generic missed draws", () => {
+  const result = analyzeFishHandHistory({
+    heroCards: "Qc Qd",
+    heroName: "Hero",
+    fishName: "Fish",
+    bigBlind: 3,
+    startingPot: 6,
+    history: `Hero raises to $10
+Fish calls $10
+Flop: Ks 7s 2s
+Hero checks
+Fish checks
+Turn: 9d
+Hero checks
+Fish checks
+River: 3c
+Hero checks
+Fish bets $20`,
+  });
+
+  assert.equal(result.warnings.length, 0);
+  const river = result.streetSnapshots.at(-1);
+  assert.ok(river.lastFishContext.passiveRiverStab);
+  assert.ok(result.range.length > 0);
+  assert.ok(result.range.every((combo) =>
+    fishDecisionForCombo(combo, river.lastFishContext).intent === "value"));
 });

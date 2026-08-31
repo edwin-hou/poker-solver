@@ -45,6 +45,9 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /Medium showdown value checks instead of becoming a paired-board bluff/);
   assert.match(trainer, /position, sizing, dead money, and what that player did earlier/);
   assert.match(trainer, /every exact combo is played from the fish's perspective/);
+  assert.match(trainer, /heads-up donks and checked-to stabs can contain air or strong draws/);
+  assert.match(trainer, /multiway donks, turn raises after prior aggression, and passive river stabs stay strongly value-weighted/);
+  assert.match(trainer, /value, semi-bluff, or bluff/);
   assert.match(trainer, /150bb/);
   assert.match(trainer, /\$450/);
   assert.match(trainer, /fold,\s+limp, open-raise, call, or 3-bet/);
@@ -61,6 +64,12 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /preflop-facing-threebet/);
   assert.match(trainerJs, /opponentsRespondToThreeBet/);
   assert.match(trainerJs, /opponentsRespondToFourBet/);
+  assert.match(trainerJs, /postflop-vs-fish-bet/);
+  assert.match(trainerJs, /buildVsFishBetDecision/);
+  assert.match(trainerJs, /shouldDefaultToObserved/);
+  assert.match(trainerJs, /choiceId: button\.dataset\.responseChoice \|\| "current"/);
+  assert.match(trainerJs, /dealPracticeRunout/);
+  assert.doesNotMatch(trainerJs, /dealCheckThroughRunout/);
   assert.match(trainerJs, /analyzeFishHandHistory/);
   assert.match(trainerJs, /renderHistoryStreetTabs/);
   assert.match(trainerJs, /streetSnapshots/);
@@ -104,6 +113,9 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.doesNotMatch(fishModel, /\.probability/);
   assert.doesNotMatch(fishModel, /preflopLookupStrategyForClass/);
   assert.match(fishModel, /Never turns TT or 99 into a 4-bet/);
+  assert.match(fishModel, /isNarrowRiverBlockerBluff/);
+  assert.match(fishModel, /isHeadsUpDonkBluff/);
+  assert.match(fishModel, /turn raises after prior aggression stay almost pure value/);
 
   assert.match(multiwayPractice, /SIX_HANDED_OPPONENTS/);
   assert.match(multiwayPractice, /limperCount/);

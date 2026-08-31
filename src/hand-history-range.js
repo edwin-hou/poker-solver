@@ -93,11 +93,41 @@ function observeRange(state, context, action, line, warnings) {
       context,
     };
     state.events.push(event);
+    state.actionLine.push({ street: state.street, actor: "fish", action, context });
     return event;
   } catch (error) {
     warnings.push(`${line}: ${error.message} The prior range was kept instead of inventing combos.`);
     return null;
   }
+}
+
+function historyPostflopContext(state, type, extra = {}) {
+  const previousFishEntry = [...state.actionLine]
+    .reverse()
+    .find((entry) => entry.actor === "fish" && entry.street !== state.street) ?? null;
+  const aggressiveStreets = new Set(state.actionLine
+    .filter((entry) => entry.actor === "fish"
+      && entry.street !== state.street
+      && ["bet", "raise"].includes(entry.action))
+    .map((entry) => entry.street));
+  const currentStreetActions = state.actionLine.filter((entry) => entry.street === state.street);
+  const heroChecked = [...currentStreetActions]
+    .reverse()
+    .find((entry) => entry.actor === "hero")?.action === "check";
+  return {
+    type,
+    board: state.board,
+    opponentCount: 1,
+    headsUp: true,
+    inPosition: heroChecked,
+    checkedTo: heroChecked,
+    donk: !heroChecked && type === "postflop-first",
+    wasPreflopAggressor: state.fishWasPreflopAggressor,
+    previousFishAction: previousFishEntry?.action ?? null,
+    barrelCount: aggressiveStreets.size,
+    passiveRiverStab: state.street === "river" && aggressiveStreets.size === 0,
+    ...extra,
+  };
 }
 
 /**
@@ -135,6 +165,8 @@ export function analyzeFishHandHistory(raw = {}) {
     lastFishAction: null,
     streetLastFishAction: null,
     streetLastFishContext: null,
+    actionLine: [],
+    fishWasPreflopAggressor: false,
   };
   const streetSnapshots = [];
 
@@ -167,6 +199,7 @@ export function analyzeFishHandHistory(raw = {}) {
       state.heroCommitted = 0;
       state.fishCommitted = 0;
       state.pendingHeroBet = null;
+      state.fishWasPreflopAggressor = state.lastPreflopAggressor === "fish";
       state.streetLastFishAction = null;
       state.streetLastFishContext = null;
       const event = {
@@ -233,6 +266,7 @@ export function analyzeFishHandHistory(raw = {}) {
     }
 
     if (actor === "hero") {
+      state.actionLine.push({ street: state.street, actor: "hero", action });
       if (action === "bet") {
         if (amount === null) {
           warnings.push(`${line}: add a bet amount so the facing size can be modeled.`);
@@ -255,12 +289,21 @@ export function analyzeFishHandHistory(raw = {}) {
     }
 
     if (action === "check" && !state.pendingHeroBet) {
-      const event = observeRange(state, { type: "postflop-first", board: state.board }, "check", line, warnings);
+      const event = observeRange(state, historyPostflopContext(state, "postflop-first"), "check", line, warnings);
       if (event) captureStreetSnapshot(event);
       continue;
     }
     if (action === "bet" && !state.pendingHeroBet) {
-      const event = observeRange(state, { type: "postflop-first", board: state.board }, "bet", line, warnings);
+      const potBefore = state.pot;
+      const event = observeRange(
+        state,
+        historyPostflopContext(state, "postflop-first", {
+          betFraction: amount === null ? undefined : amount / Math.max(1, potBefore),
+        }),
+        "bet",
+        line,
+        warnings,
+      );
       if (amount !== null) commit(state, "fish", amount);
       else warnings.push(`${line}: the range was filtered, but no bet amount was available for pot tracking.`);
       if (event) captureStreetSnapshot(event);
@@ -269,7 +312,7 @@ export function analyzeFishHandHistory(raw = {}) {
     if (state.pendingHeroBet?.type === "bet" && ["fold", "call", "raise"].includes(action)) {
       const event = observeRange(
         state,
-        { type: "postflop-vs-bet", board: state.board, betFraction: state.pendingHeroBet.fraction },
+        historyPostflopContext(state, "postflop-vs-bet", { betFraction: state.pendingHeroBet.fraction }),
         action,
         line,
         warnings,
@@ -281,7 +324,7 @@ export function analyzeFishHandHistory(raw = {}) {
       continue;
     }
     if (state.pendingHeroBet?.type === "raise" && ["fold", "call"].includes(action)) {
-      const event = observeRange(state, { type: "postflop-vs-raise", board: state.board }, action, line, warnings);
+      const event = observeRange(state, historyPostflopContext(state, "postflop-vs-raise"), action, line, warnings);
       if (action === "call") commitTo(state, "fish", state.heroCommitted);
       state.pendingHeroBet = null;
       if (event) captureStreetSnapshot(event);

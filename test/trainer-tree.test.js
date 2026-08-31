@@ -5,6 +5,7 @@ import {
   addTrainerTreeNode,
   createFishRange,
   createTrainerTree,
+  fishDecisionForCombo,
   observeFishAction,
   parseCard,
   parseCards,
@@ -77,7 +78,14 @@ test("postflop sizing explorer assigns each threaded combo to one literal action
   assertExactPartition(range, threeQuarterPot);
   assert.ok(thirdPot.call.length > threeQuarterPot.call.length);
   assert.ok(thirdPot.fold.length < threeQuarterPot.fold.length);
-  assert.equal(thirdPot.raise, undefined, "the prior fish check already removed every raising hand");
+  assert.ok(thirdPot.raise.length > 0, "a few strong draws should retain the modeled flop semi-bluff raise");
+  assert.ok(thirdPot.raise.every((combo) =>
+    fishDecisionForCombo(combo, {
+      type: "postflop-vs-bet",
+      board,
+      betFraction: 0.33,
+    }).intent === "semi-bluff"));
+  assert.equal(threeQuarterPot.raise, undefined, "the same checked draws do not bluff-raise the larger size");
 });
 
 test("trainer tree retains sibling counterfactual branches and navigates each path", () => {

@@ -200,6 +200,7 @@ function cloneOpponent(opponent, { reveal = true } = {}) {
     combo: reveal ? { ...opponent.combo, cards: [...opponent.combo.cards] } : null,
     range: cloneFishRange(opponent.range),
     rangeEvents: cloneRangeEvents(opponent.rangeEvents),
+    postflopLine: (opponent.postflopLine ?? []).map((entry) => ({ ...entry })),
   };
 }
 
@@ -315,7 +316,32 @@ function observeOpponent(opponent, context, action, text) {
     action,
     [...state.heroCards, ...state.board],
   );
-  addRangeEvent(opponent, `${text} Keep only exact hands this basic fish model would take that action with.`);
+  addRangeEvent(opponent, `${text} Keep only exact hands this line-aware live recreational model would take that action with.`);
+  if (state.street !== "preflop") {
+    opponent.postflopLine ??= [];
+    opponent.postflopLine.push({ street: state.street, action, context: { ...context } });
+  }
+}
+
+function opponentPostflopContext(opponent, type, extra = {}) {
+  const line = opponent.postflopLine ?? [];
+  const previousStreetEntry = [...line].reverse().find((entry) => entry.street !== state.street) ?? null;
+  const aggressiveStreets = new Set(line
+    .filter((entry) => entry.street !== state.street && ["bet", "raise"].includes(entry.action))
+    .map((entry) => entry.street));
+  const opponentCount = activeOpponents().length;
+  return {
+    type,
+    board: state.board,
+    opponentCount,
+    headsUp: opponentCount === 1,
+    wasPreflopAggressor: [state.openerId, state.threeBettorId].includes(opponent.id),
+    previousFishAction: previousStreetEntry?.action ?? null,
+    barrelCount: aggressiveStreets.size,
+    spr: opponent.stack / Math.max(1, state.pot),
+    passiveRiverStab: state.street === "river" && aggressiveStreets.size === 0,
+    ...extra,
+  };
 }
 
 function startNewHand() {
@@ -324,7 +350,7 @@ function startNewHand() {
   const heroCards = randomTrainerHeroCards(scenarioKind);
   const scenario = createSixHandedPracticeScenario({ heroCards, scenarioKind });
   const hiddenCards = scenario.opponents.flatMap((opponent) => opponent.combo.cards);
-  const runout = dealCheckThroughRunout(heroCards, scenario.opponents, hiddenCards);
+  const runout = dealPracticeRunout(heroCards, hiddenCards);
   state = {
     heroCards,
     opponents: scenario.opponents,
@@ -348,6 +374,7 @@ function startNewHand() {
     heroStatus: "Decision pending",
     revealFish: false,
   };
+  for (const opponent of state.opponents) opponent.postflopLine = [];
   tree = createTrainerTree();
   currentNodeId = null;
   pendingBranch = null;
@@ -592,34 +619,30 @@ function buildAfterCheckDecision() {
   };
 }
 
-function dealCheckThroughRunout(heroCards, opponents, hiddenCards) {
-  const liveOpponents = opponents.filter((opponent) => !opponent.folded);
-  for (let attempt = 0; attempt < 240; attempt += 1) {
-    const deck = createDeck([...heroCards, ...hiddenCards]);
-    const runout = [];
-    while (runout.length < 5) {
-      const chosen = Math.floor(Math.random() * deck.length);
-      runout.push(deck.splice(chosen, 1)[0]);
-    }
-    const everyStreetChecks = [3, 4, 5].every((count) => {
-      const board = runout.slice(0, count);
-      const context = { type: "postflop-multiway-first", board };
-      return liveOpponents.every((opponent) => sampleFishAction(opponent.combo, context) === "check");
-    });
-    if (everyStreetChecks) return runout;
+function dealPracticeRunout(heroCards, hiddenCards) {
+  const deck = createDeck([...heroCards, ...hiddenCards]);
+  const runout = [];
+  while (runout.length < 5) {
+    const chosen = Math.floor(Math.random() * deck.length);
+    runout.push(deck.splice(chosen, 1)[0]);
   }
-  throw new Error("Could not deal a consistent check-through practice runout.");
+  return runout;
 }
 
 function buildVsRaiseDecision(amountToCall, raiserId) {
   const raiser = opponentById(raiserId);
   const equity = postflopEquity();
   const potOdds = amountToCall / Math.max(1, state.pot + amountToCall);
-  const extraRespect = state.street === "river" ? 0.08 : 0.04;
+  const raiseContext = raiser.postflopLine?.at(-1)?.context
+    ?? opponentPostflopContext(raiser, "postflop-vs-bet");
+  const bluffCombos = raiser.range.filter((combo) =>
+    ["bluff", "semi-bluff"].includes(fishDecisionForCombo(combo, raiseContext).intent)).length;
+  const bluffShare = bluffCombos / Math.max(1, raiser.range.length);
+  const extraRespect = state.street === "river" ? 0.08 : bluffShare > 0 ? 0.01 : 0.04;
   const recommended = equity >= potOdds + extraRespect ? "call" : "fold";
   const reason = recommended === "call"
-    ? `The raise range is strong, but your estimated ${Math.round(equity * 100)}% equity still clears the ${Math.round(potOdds * 100)}% price with a safety margin.`
-    : `This basic fish has no bluff-raise branch in this spot. Your estimated ${Math.round(equity * 100)}% equity does not clear a ${Math.round(potOdds * 100)}% price once that is respected.`;
+    ? `The raise is still value-heavy, but roughly ${Math.round(bluffShare * 100)}% of its exact combos are modeled bluffs or semi-bluffs. Your estimated ${Math.round(equity * 100)}% equity clears the ${Math.round(potOdds * 100)}% price with the line-specific margin.`
+    : `This line contains only about ${Math.round(bluffShare * 100)}% modeled bluffs or semi-bluffs. Your estimated ${Math.round(equity * 100)}% equity does not clear the ${Math.round(potOdds * 100)}% price once that value weight is respected.`;
   return {
     type: "postflop-vs-raise",
     title: `${raiser.position} raises. Do you pay it off multiway?`,
@@ -632,19 +655,76 @@ function buildVsRaiseDecision(amountToCall, raiserId) {
     raiserId,
     choiceReasons: {
       fold: recommended === "fold"
-        ? `Correct. The modeled fish has no bluff-raise branch here, and ${Math.round(equity * 100)}% equity does not clear the ${Math.round(potOdds * 100)}% price plus the value-heavy safety margin.`
+        ? `Correct. This exact raise range is only ${Math.round(bluffShare * 100)}% bluff or semi-bluff, and ${Math.round(equity * 100)}% equity does not clear the ${Math.round(potOdds * 100)}% price plus the line-specific margin.`
         : `This is too tight. Even after respecting the fish's strong raise, your ${Math.round(equity * 100)}% estimate still pays for the ${Math.round(potOdds * 100)}% call with the required margin.`,
       call: recommended === "call"
-        ? `Correct. This is not a curiosity call: the sampled range equity actually clears the exact price even after adding extra respect for a passive player's raise.`
-        : `This is a payoff mistake. The raise range contains no modeled bluffs, so pot odds alone are not enough when your ${Math.round(equity * 100)}% equity misses the adjusted threshold.`,
+        ? `Correct. This is not a curiosity call: the sampled range equity clears the exact price after accounting for the ${Math.round(bluffShare * 100)}% bluff/semi-bluff share.`
+        : `This is a payoff mistake. The raise range is too value-heavy for your ${Math.round(equity * 100)}% equity to clear the adjusted threshold.`,
     },
     basis: {
-      title: "Exact pot odds + value-heavy raise model",
-      copy: "The price is exact and equity is sampled from every active seat's exact binary range. The extra fold margin reflects the modeled fish's no-bluff raise rule; it is not presented as a solved multiway equilibrium.",
+      title: "Exact pot odds + line-specific bluff share",
+      copy: `The price is exact and equity is sampled from every active seat's exact binary range. The raiser's surviving range is ${Math.round(bluffShare * 100)}% bluff/semi-bluff by literal combo count; this is an exploit estimate, not a solved multiway equilibrium.`,
     },
     options: [
       { id: "fold", label: "Fold", detail: "Exploit the face-up raise" },
       { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Continue only with enough range equity" },
+    ],
+  };
+}
+
+function buildVsFishBetDecision(amountToCall, bettorId, betContext) {
+  const bettor = opponentById(bettorId);
+  const equity = postflopEquity();
+  const potOdds = amountToCall / Math.max(1, state.pot + amountToCall);
+  const bluffCombos = bettor.range.filter((combo) =>
+    ["bluff", "semi-bluff"].includes(fishDecisionForCombo(combo, betContext).intent)).length;
+  const bluffShare = bluffCombos / Math.max(1, bettor.range.length);
+  const multiway = activeOpponents().length > 1;
+  const aggressiveAction = bettor.range.length
+    ? fishDecisionForCombo(bettor.range[0], betContext).action
+    : "bet";
+  const raiseThreshold = multiway ? 0.76 : 0.68;
+  const callThreshold = potOdds + (multiway && bluffShare < 0.12 ? 0.05 : 0.01);
+  const recommended = equity >= raiseThreshold ? "raise" : equity >= callThreshold ? "call" : "fold";
+  const lineLabel = aggressiveAction === "raise"
+    ? "multiway raise"
+    : multiway ? "multiway lead" : "heads-up donk";
+  const reason = `${bettor.position}'s ${lineLabel} contains about ${Math.round(bluffShare * 100)}% bluffs or semi-bluffs by exact combo count. Your ${Math.round(equity * 100)}% range equity is compared with ${Math.round(potOdds * 100)}% pot odds and a ${multiway ? "tighter multiway" : "wider heads-up"} continuing threshold.`;
+  return {
+    type: "postflop-vs-fish-bet",
+    title: `${bettor.position} ${aggressiveAction === "raise" ? "raises" : "bets"} into the field. How do you respond?`,
+    copy: `The action is not automatically value: this exact ${lineLabel} is modeled from the board, position, earlier line, and bet size.`,
+    recommended,
+    acceptable: recommended === "raise" ? ["call"] : [],
+    reason,
+    equity,
+    amountToCall,
+    bettorId,
+    betContext,
+    bluffShare,
+    aggressiveAction,
+    betFraction: betContext.betFraction ?? 0.33,
+    choiceReasons: {
+      fold: recommended === "fold"
+        ? `Correct. ${Math.round(equity * 100)}% equity misses the line-adjusted continuing threshold even after including the modeled bluffs.`
+        : `Too tight. The ${Math.round(bluffShare * 100)}% bluff/semi-bluff share and your ${Math.round(equity * 100)}% equity make folding surrender too much.`,
+      call: recommended === "call"
+        ? `Correct. Calling realizes your equity without isolating yourself against the fish's strongest continue range.`
+        : recommended === "raise"
+          ? "Calling is profitable, but raising extracts more from the bettor's pair-and-draw continues with your very strong range equity."
+          : `This call pays off a range that is still too value-heavy; ${Math.round(equity * 100)}% does not clear the adjusted threshold.`,
+      raise: recommended === "raise"
+        ? `Correct. ${Math.round(equity * 100)}% equity clears the strong-value threshold, so raising is for value—not because the fish can bluff.`
+        : "Raising would fold the air you beat and concentrate action in stronger made hands and robust draws; that is reverse value, not protection.",
+    },
+    basis: {
+      title: "Exact binary betting range + line-aware population prior",
+      copy: `The bettor's threaded range contains ${bluffCombos} bluff/semi-bluff combos out of ${bettor.range.length}. Heads-up donks are allowed more bluffs; multiway donks stay strongly value-weighted.`,
+    },
+    options: [
+      { id: "fold", label: "Fold", detail: "Respect a value-heavy lead" },
+      { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Realize equity against the whole betting range" },
+      { id: "raise", label: "Raise 3×", detail: "Value only—do not raise merely to learn where you are" },
     ],
   };
 }
@@ -683,15 +763,19 @@ function chooseAnswer(choiceId) {
   historyIndex = activePath().length - 1;
   moment.answer = choiceId;
   moment.feedback = feedbackFor(moment.decision, choiceId);
+  const decisionOpponent = moment.opponents.find((opponent) =>
+    opponent.id === (moment.decision.bettorId ?? moment.decision.raiserId));
   const rangeOpponent = moment.opponents.find((opponent) => opponent.id === rangeView.opponentId)
+    ?? decisionOpponent
     ?? moment.opponents.find((opponent) => !opponent.folded)
     ?? moment.opponents[0];
-  const hasImmediateFishResponse = fishResponseScenarios(moment, rangeOpponent)
-    .some((scenario) => scenario.choiceId === choiceId);
+  const responseScenarios = fishResponseScenarios(moment, rangeOpponent);
+  const hasImmediateFishResponse = responseScenarios.some((scenario) => scenario.choiceId === choiceId);
+  const observedAggression = responseScenarios.find((scenario) => scenario.choiceId === "observed");
   rangeView = {
     momentId: moment.id,
     opponentId: rangeView.opponentId,
-    choiceId: hasImmediateFishResponse ? choiceId : null,
+    choiceId: hasImmediateFishResponse ? choiceId : observedAggression?.choiceId ?? null,
     fishAction: null,
   };
   selectedRangeClass = null;
@@ -790,6 +874,45 @@ function applyHeroChoice(decision, choice) {
     addAction("Hero", `bets ${formatMoney(amount)} (${Math.round(fraction * 100)}% pot)`);
     state.heroStatus = `Bet ${formatMoney(amount)}`;
     opponentsRespondToBet(amount, fraction);
+    return;
+  }
+
+  if (decision.type === "postflop-vs-fish-bet") {
+    const bettor = opponentById(decision.bettorId);
+    if (choice === "fold") {
+      addAction("Hero", `folds to ${bettor.position}'s bet`);
+      state.heroStatus = "Folded to bet";
+      finishHand(`You folded to ${bettor.position}'s line-aware betting range. Reveal it to separate the literal value, semi-bluff, and bluff combos.`, false);
+      return;
+    }
+    if (choice === "call") {
+      commitTo("hero", bettor.committed);
+      addAction("Hero", `calls ${formatMoney(decision.amountToCall)}`);
+      state.heroStatus = "Called bet";
+      const followUpRaiserId = settleOpponentsAfterHeroCallsFishAggression(
+        bettor.id,
+        decision.aggressiveAction,
+        decision.betFraction,
+      );
+      if (followUpRaiserId) {
+        const followUpRaiser = opponentById(followUpRaiserId);
+        pushHeroDecision(buildVsRaiseDecision(
+          Math.max(0, followUpRaiser.committed - state.heroCommitted),
+          followUpRaiserId,
+        ));
+        return;
+      }
+      nextStreetOrShowdown();
+      return;
+    }
+    const raiseTarget = Math.min(
+      state.heroCommitted + state.heroStack,
+      Math.max(bettor.committed * 3, bettor.committed + decision.amountToCall * 2),
+    );
+    commitTo("hero", raiseTarget);
+    addAction("Hero", `raises to ${formatMoney(raiseTarget)}`);
+    state.heroStatus = `Raised to ${formatMoney(raiseTarget)}`;
+    opponentsRespondToHeroRaise(raiseTarget);
     return;
   }
 
@@ -977,18 +1100,82 @@ function advanceStreet() {
 }
 
 function startMultiwayStreet() {
-  const context = { type: "postflop-multiway-first", board: state.board };
+  let aggressor = null;
+  let aggressorContext = null;
+  let openingBetFraction = null;
+  let aggressionIsRaise = false;
+
   for (const opponent of opponentsInPostflopOrder()) {
-    observeOpponent(opponent, context, "check", `${streetLabel(state.street)}: ${opponent.position} checks in the multiway pot.`);
-    addAction(opponent.position, "checks");
-    opponent.status = "Checked";
+    if (!aggressor) {
+      const context = opponentPostflopContext(opponent, "postflop-multiway-first", {
+        inPosition: false,
+        checkedTo: false,
+        donk: true,
+      });
+      const decision = fishDecisionForCombo(opponent.combo, context);
+      observeOpponent(opponent, context, decision.action, `${streetLabel(state.street)}: ${opponent.position} ${decision.action}s before the BTN acts.`);
+      if (decision.action === "check") {
+        addAction(opponent.position, "checks");
+        opponent.status = "Checked";
+        continue;
+      }
+      openingBetFraction = decision.betFraction ?? (activeOpponents().length > 1 ? 0.33 : 0.50);
+      const amount = Math.max(1, Math.round(state.pot * openingBetFraction));
+      commit(opponent.id, amount);
+      addAction(opponent.position, `bets ${formatMoney(amount)} (${Math.round(openingBetFraction * 100)}% pot)`);
+      opponent.status = `Bet ${formatMoney(amount)}`;
+      aggressor = opponent;
+      aggressorContext = context;
+      continue;
+    }
+
+    const context = aggressionIsRaise
+      ? opponentPostflopContext(opponent, "postflop-vs-raise", {
+        raiseFraction: Math.max(0.15, aggressor.committed / Math.max(1, state.pot - aggressor.committed)),
+        raiserPosition: aggressor.position,
+      })
+      : opponentPostflopContext(opponent, "postflop-vs-bet", {
+        betFraction: openingBetFraction,
+        bettorPosition: aggressor.position,
+      });
+    const action = sampleFishAction(opponent.combo, context);
+    observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing ${aggressor.position}'s bet.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to bet";
+      addAction(opponent.position, `folds to ${aggressor.position}'s bet`);
+    } else if (action === "call") {
+      commitTo(opponent.id, aggressor.committed);
+      opponent.status = `Called ${formatMoney(aggressor.committed)}`;
+      addAction(opponent.position, `calls ${formatMoney(aggressor.committed)}`);
+    } else {
+      const raiseTarget = Math.min(
+        opponent.committed + opponent.stack,
+        Math.max(aggressor.committed * 3, aggressor.committed + state.pot),
+      );
+      commitTo(opponent.id, raiseTarget);
+      opponent.status = `Raised to ${formatMoney(raiseTarget)}`;
+      addAction(opponent.position, `raises to ${formatMoney(raiseTarget)}`);
+      aggressor = opponent;
+      aggressorContext = context;
+      aggressionIsRaise = true;
+    }
   }
-  pushHeroDecision(buildAfterCheckDecision());
+
+  if (!aggressor) {
+    pushHeroDecision(buildAfterCheckDecision());
+    return;
+  }
+  const amountToCall = Math.max(0, aggressor.committed - state.heroCommitted);
+  pushHeroDecision(buildVsFishBetDecision(amountToCall, aggressor.id, aggressorContext));
 }
 
 function opponentsRespondToBet(amount, fraction) {
-  const context = { type: "postflop-vs-bet", board: state.board, betFraction: fraction };
   for (const opponent of opponentsInPostflopOrder()) {
+    const context = opponentPostflopContext(opponent, "postflop-vs-bet", {
+      betFraction: fraction,
+      bettorPosition: "BTN",
+    });
     const action = sampleFishAction(opponent.combo, context);
     observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing your ${Math.round(fraction * 100)}% pot bet.`);
     if (action === "fold") {
@@ -1024,9 +1211,12 @@ function opponentsRespondToBet(amount, fraction) {
 
 function settleOpponentsFacingRaise(raiserId) {
   const raiser = opponentById(raiserId);
-  const context = { type: "postflop-vs-raise", board: state.board };
   for (const opponent of opponentsInPostflopOrder()) {
     if (opponent.id === raiserId) continue;
+    const context = opponentPostflopContext(opponent, "postflop-vs-raise", {
+      raiseFraction: Math.max(0.15, raiser.committed / Math.max(1, state.pot - raiser.committed)),
+      raiserPosition: raiser.position,
+    });
     const action = sampleFishAction(opponent.combo, context);
     observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing ${raiser.position}'s raise.`);
     if (action === "fold") {
@@ -1039,6 +1229,77 @@ function settleOpponentsFacingRaise(raiserId) {
       addAction(opponent.position, `calls to ${formatMoney(raiser.committed)}`);
     }
   }
+}
+
+function opponentsRespondToHeroRaise(target) {
+  for (const opponent of opponentsInPostflopOrder()) {
+    const context = opponentPostflopContext(opponent, "postflop-vs-raise", {
+      raiseFraction: Math.max(0.15, target / Math.max(1, state.pot - state.heroCommitted)),
+      raiserPosition: "BTN",
+    });
+    const action = sampleFishAction(opponent.combo, context);
+    observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing your raise to ${formatMoney(target)}.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to hero raise";
+      addAction(opponent.position, "folds to your raise");
+    } else {
+      commitTo(opponent.id, target);
+      opponent.status = `Called raise to ${formatMoney(target)}`;
+      addAction(opponent.position, `calls to ${formatMoney(target)}`);
+    }
+  }
+  if (!activeOpponents().length) {
+    finishHand("Every opponent folded to your raise.", false);
+    return;
+  }
+  nextStreetOrShowdown();
+}
+
+function settleOpponentsAfterHeroCallsFishAggression(aggressorId, aggressiveAction, betFraction) {
+  const aggressor = opponentById(aggressorId);
+  for (const opponent of opponentsInPostflopOrder()) {
+    if (opponent.id === aggressorId) continue;
+    const currentEntry = [...(opponent.postflopLine ?? [])]
+      .reverse()
+      .find((entry) => entry.street === state.street) ?? null;
+    const alreadyFacedFinalAction = aggressiveAction === "raise"
+      ? currentEntry?.context?.type === "postflop-vs-raise"
+      : ["postflop-vs-bet", "postflop-vs-raise"].includes(currentEntry?.context?.type);
+    if (alreadyFacedFinalAction) continue;
+
+    const context = aggressiveAction === "raise"
+      ? opponentPostflopContext(opponent, "postflop-vs-raise", {
+        raiseFraction: Math.max(0.15, aggressor.committed / Math.max(1, state.pot - aggressor.committed)),
+        raiserPosition: aggressor.position,
+      })
+      : opponentPostflopContext(opponent, "postflop-vs-bet", {
+        betFraction,
+        bettorPosition: aggressor.position,
+      });
+    const action = sampleFishAction(opponent.combo, context);
+    observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s after your call of ${aggressor.position}'s ${aggressiveAction}.`);
+    if (action === "raise") {
+      const raiseTarget = Math.min(
+        opponent.committed + opponent.stack,
+        Math.max(aggressor.committed * 3, aggressor.committed + state.pot),
+      );
+      commitTo(opponent.id, raiseTarget);
+      opponent.status = `Raised to ${formatMoney(raiseTarget)}`;
+      addAction(opponent.position, `raises to ${formatMoney(raiseTarget)}`);
+      return opponent.id;
+    }
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = `Folded to ${aggressiveAction}`;
+      addAction(opponent.position, `folds to ${aggressor.position}'s ${aggressiveAction}`);
+    } else {
+      commitTo(opponent.id, aggressor.committed);
+      opponent.status = `Called to ${formatMoney(aggressor.committed)}`;
+      addAction(opponent.position, `calls to ${formatMoney(aggressor.committed)}`);
+    }
+  }
+  return null;
 }
 
 function nextStreetOrShowdown() {
@@ -1123,6 +1384,19 @@ function fishResponseScenarios(moment, opponent) {
   if (moment.kind !== "decision") return [];
   const optionLabel = (choiceId) =>
     moment.decision.options.find((option) => option.id === choiceId)?.label ?? choiceId;
+  const liveCount = moment.opponents.filter((entry) => !entry.folded).length;
+  const previousStreetEntry = [...(opponent.postflopLine ?? [])]
+    .reverse()
+    .find((entry) => entry.street !== moment.street) ?? null;
+  const postflopContext = (type, extra = {}) => ({
+    type,
+    board: moment.board,
+    opponentCount: liveCount,
+    headsUp: liveCount === 1,
+    previousFishAction: previousStreetEntry?.action ?? null,
+    wasPreflopAggressor: [moment.openerId, moment.threeBettorId].includes(opponent.id),
+    ...extra,
+  });
 
   if (moment.decision.type === "preflop-isolate" && !opponent.folded) {
     const contextFor = (target) => ({
@@ -1209,16 +1483,35 @@ function fishResponseScenarios(moment, opponent) {
       {
         choiceId: "bet33",
         label: optionLabel("bet33"),
-        context: { type: "postflop-vs-bet", board: moment.board, betFraction: 0.33 },
+        context: postflopContext("postflop-vs-bet", { betFraction: 0.33 }),
         actions: [...RANGE_ACTIONS],
       },
       {
         choiceId: "bet75",
         label: optionLabel("bet75"),
-        context: { type: "postflop-vs-bet", board: moment.board, betFraction: 0.75 },
+        context: postflopContext("postflop-vs-bet", { betFraction: 0.75 }),
         actions: [...RANGE_ACTIONS],
       },
     ];
+  }
+
+  if (moment.decision.type === "postflop-vs-fish-bet" && !opponent.folded) {
+    const scenarios = [];
+    if (opponent.id === moment.decision.bettorId) {
+      scenarios.push({
+        choiceId: "observed",
+        label: `Observed ${moment.decision.aggressiveAction}`,
+        context: moment.decision.betContext,
+        actions: [moment.decision.aggressiveAction],
+      });
+    }
+    scenarios.push({
+      choiceId: "raise",
+      label: optionLabel("raise"),
+      context: postflopContext("postflop-vs-raise", { raiseFraction: 1 }),
+      actions: [...RANGE_ACTIONS],
+    });
+    return scenarios;
   }
 
   return [];
@@ -1247,12 +1540,17 @@ function renderResponseExplorer(moment, opponent) {
   }
 
   elements.responseExplorer.hidden = false;
-  if (rangeView.momentId !== moment.id) {
+  const defaultObservedAggression = scenarios.find((scenario) => scenario.choiceId === "observed");
+  const rememberedScenario = scenarios.find((scenario) => scenario.choiceId === rangeView.choiceId);
+  const shouldDefaultToObserved = defaultObservedAggression
+    && rangeView.choiceId !== "current"
+    && !rememberedScenario;
+  if (rangeView.momentId !== moment.id || shouldDefaultToObserved) {
     const answeredScenario = scenarios.find((scenario) => scenario.choiceId === moment.answer);
     rangeView = {
       momentId: moment.id,
       opponentId: opponent.id,
-      choiceId: answeredScenario?.choiceId ?? null,
+      choiceId: answeredScenario?.choiceId ?? defaultObservedAggression?.choiceId ?? null,
       fishAction: null,
     };
     selectedRangeClass = null;
@@ -1266,7 +1564,12 @@ function renderResponseExplorer(moment, opponent) {
   ].join("");
   for (const button of elements.responseSizingOptions.querySelectorAll("[data-response-choice]")) {
     button.addEventListener("click", () => {
-      rangeView = { momentId: moment.id, opponentId: opponent.id, choiceId: button.dataset.responseChoice || null, fishAction: null };
+      rangeView = {
+        momentId: moment.id,
+        opponentId: opponent.id,
+        choiceId: button.dataset.responseChoice || "current",
+        fishAction: null,
+      };
       selectedRangeClass = null;
       renderRange(moment);
     });
@@ -1362,8 +1665,9 @@ function renderComboDetail(range, context) {
     if (!context) return `<span class="exact-combo">${entry.display}</span>`;
     const decision = fishDecisionForCombo(entry, context);
     const action = fishActionLabel(decision.action, context);
+    const intent = decision.intent ? ` · ${decision.intent}` : "";
     return `<div class="exact-combo-thought action-${decision.action}">
-      <strong>${entry.display} · ${action}</strong>
+      <strong>${entry.display} · ${action}${intent}</strong>
       <span>Fish sees: ${decision.perception}</span>
       <small>${decision.reason}</small>
     </div>`;
@@ -1371,7 +1675,10 @@ function renderComboDetail(range, context) {
 }
 
 function renderRange(moment) {
+  const decisionOpponent = moment.opponents.find((entry) =>
+    entry.id === (moment.decision?.bettorId ?? moment.decision?.raiserId));
   const opponent = moment.opponents.find((entry) => entry.id === rangeView.opponentId)
+    ?? decisionOpponent
     ?? moment.opponents.find((entry) => !entry.folded)
     ?? moment.opponents[0];
   rangeView.opponentId = opponent.id;
@@ -1581,8 +1888,9 @@ function renderHistoryComboDetail(range, snapshot) {
   elements.historyComboList.innerHTML = combos.map((entry) => {
     if (!snapshot.lastFishContext) return `<span class="exact-combo">${entry.display}</span>`;
     const decision = fishDecisionForCombo(entry, snapshot.lastFishContext);
+    const intent = decision.intent ? ` · ${decision.intent}` : "";
     return `<div class="exact-combo-thought action-${decision.action}">
-      <strong>${entry.display} · ${historyActionLabel(decision.action)}</strong>
+      <strong>${entry.display} · ${historyActionLabel(decision.action)}${intent}</strong>
       <span>Fish sees: ${decision.perception}</span>
       <small>${decision.reason}</small>
     </div>`;
