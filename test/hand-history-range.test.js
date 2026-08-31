@@ -98,3 +98,47 @@ test("hand-history estimator reports unsupported lines rather than inventing a r
   assert.ok(result.warnings.some((warning) => /no earlier hero raise/i.test(warning)));
   assert.equal(result.range.length, 1_225);
 });
+
+test("hand-history estimator uses the 4-bet context and retains sticky premiums that call", () => {
+  const result = analyzeFishHandHistory({
+    heroCards: "2c 3d",
+    heroName: "Hero",
+    fishName: "Fish",
+    bigBlind: 3,
+    startingPot: 6,
+    history: `Hero raises to $10
+Fish raises to $35
+Hero raises to $126
+Fish calls $126`,
+  });
+
+  assert.equal(result.warnings.length, 0);
+  assert.deepEqual(result.events.map((event) => event.action), ["raise", "call"]);
+  assert.ok(result.range.some((combo) => combo.classLabel === "AKo"));
+  assert.ok(result.range.some((combo) => combo.classLabel === "AQs"));
+  assert.ok(result.range.every((combo) =>
+    fishActionForCombo(combo, {
+      type: "preflop-vs-fourbet",
+      fourBetBb: 42,
+      priorAction: "threebet",
+    }) === "call"));
+});
+
+test("hand-history estimator keeps 77 in a paired-board call-check-call line", () => {
+  const result = analyzeFishHandHistory({
+    heroCards: "As Qd",
+    heroName: "Hero",
+    fishName: "Fish",
+    bigBlind: 3,
+    startingPot: 6,
+    history: `Hero raises to $10
+Fish calls $10
+Flop: Kc Kd 8h
+Fish checks
+Hero bets $8
+Fish calls $8`,
+  });
+
+  assert.equal(result.warnings.length, 0);
+  assert.equal(result.range.filter((combo) => combo.classLabel === "77").length, 6);
+});

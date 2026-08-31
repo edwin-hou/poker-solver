@@ -96,8 +96,8 @@ function limpedPlan({ bigBlind, random }) {
       status: action === "limp" ? `Limped ${bigBlind}` : "Folded preflop",
       text: action === "limp" ? `limps ${bigBlind}` : "folds",
       provenance: action === "limp"
-        ? "Keep the wide, call-first hands this online loose-passive profile enters without raising."
-        : "Remove the obvious premiums and playable hands this online loose-passive profile would enter.",
+        ? "Keep the wide, call-first hands this low-stakes loose-passive profile enters without raising."
+        : "Remove the obvious premiums and playable hands this low-stakes loose-passive profile would enter.",
     });
   }
 
@@ -151,7 +151,7 @@ function raisedPlan({ bigBlind, random }) {
         committed: 0,
         status: "Folded preflop",
         text: "folds",
-        provenance: "Keep only hands outside this online loose-passive seat's position-aware entering range.",
+        provenance: "Keep only hands outside this low-stakes loose-passive seat's position-aware entering range.",
       });
       continue;
     }
@@ -162,7 +162,7 @@ function raisedPlan({ bigBlind, random }) {
         committed: openAmount,
         status: `Raised to ${openAmount}`,
         text: `raises to ${openAmount}`,
-        provenance: "Keep the obvious value and broadway hands this online loose-passive seat raises instead of limping.",
+        provenance: "Keep the obvious value and broadway hands this low-stakes loose-passive seat raises instead of limping.",
       });
       continue;
     }
@@ -177,7 +177,7 @@ function raisedPlan({ bigBlind, random }) {
       committed: action === "call" ? openAmount : 0,
       status: action === "call" ? `Called ${openAmount}` : "Folded preflop",
       text: action === "call" ? `calls ${openAmount}` : "folds",
-      provenance: `Apply the ${seat.position} online loose-passive response using the opener's position, size, and any caller already in the pot.`,
+      provenance: `Apply the ${seat.position} low-stakes loose-passive response using the opener's position, size, and any caller already in the pot.`,
     });
   }
 
@@ -246,7 +246,7 @@ function threeBetPlan({ bigBlind, random }) {
         committed: openAmount,
         status: `Raised to ${openAmount}`,
         text: `raises to ${openAmount}`,
-        provenance: "Keep the obvious value and broadway hands this online loose-passive seat raises instead of limping.",
+        provenance: "Keep the obvious value and broadway hands this low-stakes loose-passive seat raises instead of limping.",
       });
       continue;
     }
@@ -281,7 +281,7 @@ function threeBetPlan({ bigBlind, random }) {
       text: "folds",
       provenance: facingThreeBet
         ? "Keep hands this seat releases after considering the 3-bet size, positions, and the fact it has not invested voluntarily."
-        : `Keep hands below this online loose-passive ${seat.position} seat's position-aware call and value-reraise ranges.`,
+        : `Keep hands below this low-stakes loose-passive ${seat.position} seat's position-aware call and value-reraise ranges.`,
     });
   }
 

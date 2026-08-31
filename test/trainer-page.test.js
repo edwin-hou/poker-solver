@@ -38,6 +38,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /not a claimed exact multiway solve/);
   assert.match(trainer, /Opponent ranges never use solver charts/);
   assert.match(trainer, /TT\/99 still never 4-bet/);
+  assert.match(trainer, /missed big aces peel only small postflop bets/);
+  assert.match(trainer, /Medium showdown value checks instead of becoming a paired-board bluff/);
   assert.match(trainer, /position, sizing, dead money, and what that player did earlier/);
   assert.match(trainer, /150bb/);
   assert.match(trainer, /\$450/);

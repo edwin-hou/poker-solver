@@ -1,5 +1,5 @@
 /**
- * Transparent loose-passive online population model used by Beat Fish.
+ * Transparent low-stakes loose-passive population model used by Beat Fish.
  *
  * This is deliberately a training archetype, not solver output and not a claim
  * about every low-stakes player. The key contract is easy to reason about:
@@ -18,17 +18,20 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "online-loose-passive-fish-v4",
-  label: "Basic loose-passive online fish",
+  id: "low-stakes-loose-passive-fish-v5",
+  label: "Basic low-stakes loose-passive fish",
   description:
-    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, defaults to check/call, chases obvious draws, and keeps reraises value-heavy.",
+    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums, defaults to check/call, and keeps reraises value-heavy.",
   tendencies: Object.freeze([
     "Shows a high participation rate with much less raising",
     "Enters too many pots and calls opens or isolation raises too wide",
     "Uses wider value reraises against late opens, steals, and dead money",
     "Respects early opens and larger reraises more than late or small ones",
+    "Does not release AK or suited AQ preflop after voluntarily building a pot",
+    "Peels one extra small postflop bet with missed AK/AQ, but releases them to ordinary pressure",
     "Never turns TT or 99 into a 4-bet",
-    "Checks and calls medium-strength hands",
+    "Checks medium showdown value instead of converting it into a balance bluff",
+    "Calls pairs less often as the bet and street get larger",
     "Chases obvious flush and straight draws too often",
     "Raises strong made hands far more often than bluffs",
     "Large river aggression is heavily value-weighted",
@@ -37,6 +40,8 @@ export const FISH_PROFILE = Object.freeze({
 
 const RANKS = "23456789TJQKA";
 const CATEGORY_STRENGTH = Object.freeze([0.12, 0.38, 0.72, 0.80, 0.86, 0.90, 0.96, 0.99, 1]);
+const STICKY_PREFLOP_PREMIUMS = new Set(["AKs", "AKo", "AQs"]);
+const RECOGNIZABLE_BIG_ACES = new Set(["AKs", "AKo", "AQs", "AQo"]);
 
 function clamp(value, minimum = 0, maximum = 1) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -134,12 +139,50 @@ function highCardInfo(combo, board) {
   };
 }
 
+function rankCounts(cards) {
+  const counts = new Map();
+  for (const card of cards) counts.set(rankValue(card), (counts.get(rankValue(card)) ?? 0) + 1);
+  return counts;
+}
+
+function pairedBoardShowdownTier(combo, board) {
+  const holeRanks = combo.cards.map(rankValue);
+  const boardCounts = rankCounts(board);
+  const singletonRanks = [...boardCounts]
+    .filter(([, count]) => count === 1)
+    .map(([rank]) => rank)
+    .sort((left, right) => right - left);
+
+  if (holeRanks[0] === holeRanks[1]) {
+    const pairRank = holeRanks[0];
+    if (pairRank > Math.max(...board.map(rankValue))) return "overpair";
+    if (!singletonRanks.length || pairRank > singletonRanks[0]) return "middle-pair";
+    return "underpair";
+  }
+
+  if (holeRanks.some((rank) => singletonRanks.includes(rank))) return "middle-pair";
+  return "board-pair";
+}
+
 export function postflopHandFeatures(combo, board) {
   const cards = [...combo.cards, ...board];
   const score = evaluateBest(cards);
   const category = scoreCategory(score);
-  const pair = pairTier(combo, board, category);
+  const rawPair = pairTier(combo, board, category);
   const highCard = highCardInfo(combo, board);
+  const boardCounts = rankCounts(board);
+  const boardPaired = [...boardCounts.values()].some((count) => count >= 2);
+  const boardTrips = [...boardCounts.values()].some((count) => count >= 3);
+  const boardPlays = board.length === 5 && compareScores(score, evaluate5(board)) === 0;
+  const boardMadeShowdown = boardPlays
+    || (category === 2 && boardPaired)
+    || (category === 3 && boardTrips);
+  const aggressionTier = category >= 2 && !boardMadeShowdown ? "strong" : category >= 1 ? "showdown" : "air";
+  const pair = rawPair ?? (boardMadeShowdown ? pairedBoardShowdownTier(combo, board) : null);
+  const holeRanks = combo.cards.map(rankValue);
+  const unpairedPremium = RECOGNIZABLE_BIG_ACES.has(combo.classLabel)
+    && holeRanks[0] !== holeRanks[1]
+    && holeRanks.every((rank) => !boardCounts.has(rank));
 
   const suitCounts = new Map();
   for (const card of cards) suitCounts.set(suitIndex(card), (suitCounts.get(suitIndex(card)) ?? 0) + 1);
@@ -147,7 +190,7 @@ export function postflopHandFeatures(combo, board) {
   const straightDraw = board.length < 5 && category < 4 ? straightDrawType(cards) : null;
 
   let madeStrength = CATEGORY_STRENGTH[category] ?? 0.12;
-  if (category === 1) {
+  if (aggressionTier === "showdown") {
     madeStrength = {
       overpair: 0.64,
       "top-pair": 0.58,
@@ -166,6 +209,9 @@ export function postflopHandFeatures(combo, board) {
   return {
     category,
     pairTier: pair,
+    aggressionTier,
+    boardMadeShowdown,
+    unpairedPremium,
     flushDraw,
     straightDraw,
     aceHigh: highCard.aceHigh,
@@ -243,9 +289,9 @@ const SQUEEZE_ADDITIONS = Object.freeze({
   UTG: new Set(["TT", "AJs", "KQs"]),
   HJ: new Set(["99", "AJo", "KJs", "QJs"]),
   CO: new Set(["88", "ATs", "KQo", "QJs", "JTs"]),
-  BTN: new Set(["77", "A9s", "KTs", "QTs", "JTs", "T9s"]),
-  SB: new Set(["77", "A9s", "KTs", "QTs", "JTs"]),
-  BB: new Set(["77", "A9s", "KTs", "QTs", "JTs"]),
+  BTN: new Set(["88", "A9s", "KTs", "QTs", "JTs", "T9s"]),
+  SB: new Set(["88", "A9s", "KTs", "QTs", "JTs"]),
+  BB: new Set(["88", "A9s", "KTs", "QTs", "JTs"]),
 });
 
 const LARGE_OPEN_RERAISE_EXCLUSIONS = new Set([
@@ -303,7 +349,7 @@ function onlineFishFacingOpenAction(classLabel, context) {
     for (const hand of SQUEEZE_ADDITIONS[openerPosition] ?? SQUEEZE_ADDITIONS.CO) raises.add(hand);
   }
   if (["SB", "BB"].includes(position) && isLatePosition(openerPosition)) {
-    for (const hand of ["77", "A9s", "KTs", "QTs", "JTs"]) raises.add(hand);
+    for (const hand of ["88", "A9s", "KTs", "QTs", "JTs"]) raises.add(hand);
   }
   if (openBb >= 5) {
     for (const hand of LARGE_OPEN_RERAISE_EXCLUSIONS) raises.delete(hand);
@@ -340,6 +386,10 @@ function onlineFishFacingThreeBetAction(classLabel, context) {
   // TT/99 4-bets. Those hands remain calls or folds in every context.
   if (!["TT", "99"].includes(classLabel) && fourBets.has(classLabel)) return "raise";
 
+  // Recognizable premiums are psychologically difficult for this profile to
+  // release preflop. This is a call-floor, not an excuse to widen its 4-bets.
+  if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
+
   if (priorAction === "opened") {
     if (veryLarge) {
       return ["QQ", "JJ", "TT", "AKs", "AKo", "AQs"].includes(classLabel) ? "call" : "fold";
@@ -368,6 +418,7 @@ function onlineFishFacingFourBetAction(classLabel, context) {
 
   if (priorAction === "threebet") {
     if (["AA", "KK"].includes(classLabel)) return "raise";
+    if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
     const calls = veryLarge
       ? ["QQ", "AKs", "AKo"]
       : ["QQ", "JJ", "AKs", "AKo", "AQs"];
@@ -376,6 +427,7 @@ function onlineFishFacingFourBetAction(classLabel, context) {
 
   if (priorAction === "opened") {
     if (classLabel === "AA") return "raise";
+    if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
     const calls = veryLarge
       ? ["KK", "QQ", "AKs"]
       : ["KK", "QQ", "AKs", "AKo"];
@@ -383,6 +435,7 @@ function onlineFishFacingFourBetAction(classLabel, context) {
   }
 
   if (["AA", "KK"].includes(classLabel)) return "raise";
+  if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
   if (!veryLarge && ["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
   if (veryLarge && ["QQ", "AKs"].includes(classLabel)) return "call";
   return "fold";
@@ -423,7 +476,7 @@ export function fishActionForCombo(combo, context = {}) {
   if (type === "postflop-first") {
     // The passive default is check. Obvious monsters and huge combo draws are
     // the main hands this archetype decides it needs to "protect" by betting.
-    if (features.category >= 2) return "bet";
+    if (features.aggressionTier === "strong") return "bet";
     if (!river && features.flushDraw && features.straightDraw === "open-ended") return "bet";
     return "check";
   }
@@ -433,29 +486,40 @@ export function fishActionForCombo(combo, context = {}) {
 
     // Raises are simple and face-up: strong made hands, with essentially no
     // river bluff-raising. This is the most important exploitable tendency.
-    if (river) {
-      if (features.category >= 2) return "raise";
-    } else if (features.category >= 2) {
-      return "raise";
-    }
+    if (features.aggressionTier === "strong") return "raise";
 
-    // Calling station behavior: private-card pairs hang on, obvious draws
-    // chase too much, and small flop bets even get peeled by ace-high / overs.
-    if (features.category === 1 && features.pairTier !== "board-pair") return "call";
+    // Calling-station behavior is still size- and street-sensitive. Medium
+    // showdown value calls smaller bets but is never promoted into a bluff
+    // merely because a paired board makes the evaluator say "two pair."
+    const street = board.length === 3 ? "flop" : board.length === 4 ? "turn" : "river";
+    const pairCallCaps = {
+      overpair: { flop: 1.1, turn: 0.95, river: 0.75 },
+      "top-pair": { flop: 1, turn: 0.85, river: 0.66 },
+      "middle-pair": { flop: 0.72, turn: 0.56, river: 0.42 },
+      "bottom-pair": { flop: 0.60, turn: 0.44, river: 0.32 },
+      underpair: { flop: 0.42, turn: 0.30, river: 0.22 },
+      "board-pair": { flop: 0.24, turn: 0.18, river: 0.12 },
+    };
+    const pairCallCap = pairCallCaps[features.pairTier]?.[street] ?? 0;
+    if (features.aggressionTier === "showdown" && betFraction <= pairCallCap) return "call";
     if (!river && (features.flushDraw || features.straightDraw)) {
       return betFraction <= 1 ? "call" : "fold";
     }
-    if (!river && betFraction <= 0.36 && (features.aceHigh || features.twoOvercards)) return "call";
+    if (features.unpairedPremium) {
+      if (board.length === 3 && betFraction <= 0.42) return "call";
+      if (board.length === 4 && betFraction <= 0.24 && features.twoOvercards) return "call";
+    }
+    if (board.length === 3 && betFraction <= 0.24 && (features.aceHigh || features.twoOvercards)) return "call";
     return "fold";
   }
 
   if (type === "postflop-vs-raise") {
     if (river) {
-      if (features.category >= 2) return "call";
+      if (features.aggressionTier === "strong") return "call";
       if (["overpair", "top-pair"].includes(features.pairTier)) return "call";
       return "fold";
     }
-    if (features.category >= 2) return "call";
+    if (features.aggressionTier === "strong") return "call";
     if (["overpair", "top-pair", "middle-pair"].includes(features.pairTier)) return "call";
     if (features.flushDraw || features.straightDraw === "open-ended") return "call";
     return "fold";
@@ -534,8 +598,8 @@ export function fishRangeBucket(combo, board = []) {
   }
 
   const features = postflopHandFeatures(combo, board);
-  if (features.category >= 2) return "strong";
-  if (features.category === 1 && features.pairTier !== "board-pair") return "medium";
+  if (features.aggressionTier === "strong") return "strong";
+  if (features.aggressionTier === "showdown" && features.pairTier !== "board-pair") return "medium";
   if (features.flushDraw || features.straightDraw) return "draw";
   return "weak";
 }
