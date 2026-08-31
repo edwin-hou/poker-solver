@@ -126,6 +126,9 @@ export function analyzeFishHandHistory(raw = {}) {
     range: createFishRange({ heroCards }),
     events: [],
     openAmount: null,
+    pendingPreflopContext: null,
+    lastPreflopAggressor: null,
+    fishPreflopRole: "none",
     pendingHeroBet: null,
     lastFishAction: null,
     streetLastFishAction: null,
@@ -188,8 +191,17 @@ export function analyzeFishHandHistory(raw = {}) {
           warnings.push(`${line}: add a raise-to amount so the open size can be modeled.`);
           continue;
         }
+        const facingFishReraise = state.lastPreflopAggressor === "fish";
+        state.pendingPreflopContext = facingFishReraise
+          ? {
+            type: "preflop-vs-fourbet",
+            fourBetBb: amount / bigBlind,
+            priorAction: state.fishPreflopRole === "threebet" ? "threebet" : "opened",
+          }
+          : { type: "preflop-vs-open", openBb: amount / bigBlind };
         state.openAmount = amount;
         commitTo(state, "hero", amount);
+        state.lastPreflopAggressor = "hero";
         continue;
       }
       if (actor === "fish" && ["fold", "call", "raise"].includes(action)) {
@@ -199,13 +211,17 @@ export function analyzeFishHandHistory(raw = {}) {
         }
         const event = observeRange(
           state,
-          { type: "preflop-vs-open", openBb: state.openAmount / bigBlind },
+          state.pendingPreflopContext ?? { type: "preflop-vs-open", openBb: state.openAmount / bigBlind },
           action,
           line,
           warnings,
         );
         if (action === "call") commitTo(state, "fish", state.heroCommitted);
-        if (action === "raise") commitTo(state, "fish", amount ?? state.openAmount * 3.3);
+        if (action === "raise") {
+          commitTo(state, "fish", amount ?? state.openAmount * 3.3);
+          state.fishPreflopRole = state.fishPreflopRole === "none" ? "threebet" : state.fishPreflopRole;
+          state.lastPreflopAggressor = "fish";
+        }
         if (event) captureStreetSnapshot(event);
       }
       continue;

@@ -5,6 +5,7 @@ import {
   createFishRange,
   filterFishRange,
   fishActionForCombo,
+  fishRangeBucket,
   observeFishAction,
   parseCard,
   parseCards,
@@ -43,7 +44,26 @@ test("preflop fish policy is deterministic with wide calls and value-heavy 3-bet
   assert.ok(called.every((entry) => fishActionForCombo(entry, context) === "call"));
 });
 
-test("online fish reraises are premium-heavy and never 4-bet TT or 99", () => {
+test("loose-passive blinds call 77 instead of manufacturing a light 3-bet", () => {
+  const prior = createFishRange({ heroCards: parseCards("As Qd", { exact: 2 }) });
+  const sevens = firstClass(prior, "77");
+  assert.ok(sevens);
+  assert.equal(fishActionForCombo(sevens, {
+    type: "preflop-vs-open",
+    position: "BB",
+    openerPosition: "CO",
+    openBb: 10 / 3,
+  }), "call");
+  assert.equal(fishActionForCombo(sevens, {
+    type: "sixmax-vs-open",
+    position: "BB",
+    openerPosition: "BTN",
+    openBb: 2.5,
+    coldCallerCount: 1,
+  }), "call");
+});
+
+test("low-stakes fish reraises are premium-heavy and never 4-bet TT or 99", () => {
   const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
   const aa = firstClass(prior, "AA");
   const kk = firstClass(prior, "KK");
@@ -83,7 +103,31 @@ test("online fish reraises are premium-heavy and never 4-bet TT or 99", () => {
   assert.equal(fishActionForCombo(nines, facingFourBet), "fold");
 });
 
-test("online fish reraises react to opener position, dead money, sizing, and prior action", () => {
+test("recognizable AK and suited AQ never fold preflop but do not become automatic reraises", () => {
+  const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
+  const premiums = ["AKs", "AKo", "AQs"].map((label) => firstClass(prior, label));
+  assert.ok(premiums.every(Boolean));
+
+  const largeColdThreeBet = {
+    type: "preflop-vs-threebet",
+    position: "BB",
+    threeBettorPosition: "UTG",
+    threeBetBb: 22,
+    priorAction: "blind",
+  };
+  const largeFourBet = {
+    type: "preflop-vs-fourbet",
+    fourBetBb: 42,
+    priorAction: "threebet",
+  };
+
+  for (const combo of premiums) {
+    assert.equal(fishActionForCombo(combo, largeColdThreeBet), "call");
+    assert.equal(fishActionForCombo(combo, largeFourBet), "call");
+  }
+});
+
+test("low-stakes fish reraises react to opener position, dead money, sizing, and prior action", () => {
   const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
   const tt = firstClass(prior, "TT");
   const eights = firstClass(prior, "88");
@@ -176,6 +220,73 @@ test("river raises are face-up value while air folds", () => {
   assert.ok(strong && weak);
   assert.equal(fishActionForCombo(strong, context), "raise");
   assert.equal(fishActionForCombo(weak, context), "fold");
+});
+
+test("missed AK and AQ peel only unusually small postflop bets", () => {
+  const flop = parseCards("9c 6d 2s", { exact: 3 });
+  const range = createFishRange({ board: flop });
+  const aceKing = firstClass(range, "AKo");
+  const aceQueen = firstClass(range, "AQs");
+  assert.ok(aceKing && aceQueen);
+
+  for (const combo of [aceKing, aceQueen]) {
+    assert.equal(
+      fishActionForCombo(combo, { type: "postflop-vs-bet", board: flop, betFraction: 0.33 }),
+      "call",
+    );
+    assert.equal(
+      fishActionForCombo(combo, { type: "postflop-vs-bet", board: flop, betFraction: 0.50 }),
+      "fold",
+    );
+  }
+
+  const turn = parseCards("9c 6d 2s 3h", { exact: 4 });
+  assert.equal(
+    fishActionForCombo(aceKing, { type: "postflop-vs-bet", board: turn, betFraction: 0.20 }),
+    "call",
+  );
+  assert.equal(
+    fishActionForCombo(aceKing, { type: "postflop-vs-bet", board: turn, betFraction: 0.33 }),
+    "fold",
+  );
+});
+
+test("paired-board pocket pairs remain showdown value and never become two-pair bluffs", () => {
+  const flop = parseCards("Kc Kd 8h", { exact: 3 });
+  const range = createFishRange({ board: flop });
+  const sevens = firstClass(range, "77");
+  assert.ok(sevens);
+
+  assert.equal(fishRangeBucket(sevens, flop), "medium");
+  assert.equal(fishActionForCombo(sevens, { type: "postflop-first", board: flop }), "check");
+  assert.equal(
+    fishActionForCombo(sevens, { type: "postflop-vs-bet", board: flop, betFraction: 0.33 }),
+    "call",
+  );
+  assert.equal(
+    fishActionForCombo(sevens, { type: "postflop-vs-bet", board: flop, betFraction: 0.75 }),
+    "fold",
+  );
+
+  const river = parseCards("Kc Kd 8h 2s 3c", { exact: 5 });
+  assert.equal(fishActionForCombo(sevens, { type: "postflop-first", board: river }), "check");
+  assert.notEqual(
+    fishActionForCombo(sevens, { type: "postflop-vs-bet", board: river, betFraction: 0.75 }),
+    "raise",
+  );
+});
+
+test("genuine two pair still takes the fish model's face-up value line", () => {
+  const board = parseCards("Qc 8d 2s", { exact: 3 });
+  const range = createFishRange({ board });
+  const queenEight = firstClass(range, "Q8s");
+  assert.ok(queenEight);
+  assert.equal(fishRangeBucket(queenEight, board), "strong");
+  assert.equal(fishActionForCombo(queenEight, { type: "postflop-first", board }), "bet");
+  assert.equal(
+    fishActionForCombo(queenEight, { type: "postflop-vs-bet", board, betFraction: 0.75 }),
+    "raise",
+  );
 });
 
 test("range summaries report literal combo counts and hand-type buckets", () => {

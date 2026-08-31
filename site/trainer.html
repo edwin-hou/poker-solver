@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#07111f" />
     <meta
       name="description"
-      content="Beat Fish is an interactive 150bb six-handed poker trainer against independent online loose-passive ranges from preflop through river."
+      content="Beat Fish is an interactive 150bb six-handed poker trainer against independent low-stakes loose-passive ranges from preflop through river."
     />
     <title>Beat Fish · Poker Solver</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -34,18 +34,18 @@
     <main class="trainer-shell shell">
       <section class="trainer-intro">
         <div>
-          <div class="eyebrow">Online exploit trainer</div>
+          <div class="eyebrow">Low-stakes exploit trainer</div>
           <h1>Beat Fish</h1>
           <p>
-            Practice 150bb six-handed $1/$2/$3 spots against five basic online loose-passive opponents. Early seats can fold,
+            Practice 150bb six-handed $1/$2/$3 spots against five basic low-stakes loose-passive opponents. Early seats can fold,
             limp, open-raise, call, or 3-bet when the action allows it, and the curated hands favor contested
             limped and raised pots over routine open-and-everyone-folds drills.
           </p>
         </div>
         <div class="profile-note">
           <strong>Modeled table</strong>
-          <span>Five independent online recreational-player ranges · high participation, low aggression · sticky calls · context-aware value reraises</span>
-          <small>Opponent ranges never use solver charts: exact hands respond to position, sizing, dead money, and what that player did earlier. Their 3-bets and 4-bets widen in sensible late-position or squeeze spots, but TT/99 still never 4-bet. Hero advice uses the repository's 150bb six-max lookup plus disclosed best-response estimates—not a claimed exact multiway solve.</small>
+          <span>Five independent low-stakes recreational-player ranges · high participation, low aggression · size-sensitive sticky calls · context-aware value reraises</span>
+          <small>Opponent ranges never use solver charts: exact hands respond to position, sizing, dead money, and what that player did earlier. AK and suited AQ do not fold preflop, but missed big aces peel only small postflop bets. Medium showdown value checks instead of becoming a paired-board bluff; TT/99 still never 4-bet. Hero advice uses the repository's 150bb six-max lookup plus disclosed best-response estimates—not a claimed exact multiway solve.</small>
         </div>
       </section>
 

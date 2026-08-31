@@ -419,7 +419,7 @@ function buildPreflopOpenDecision() {
     },
     basis: {
       title: "150bb six-max baseline + fish-range estimate",
-      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The opponent limps come only from the online fish model; isolation sizing is a disclosed multiway best-response estimate, not a solved limped-pot equilibrium.`,
+      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The opponent limps come only from the low-stakes fish model; isolation sizing is a disclosed multiway best-response estimate, not a solved limped-pot equilibrium.`,
     },
     smallTarget: state.smallTarget,
     largeTarget: state.largeTarget,
