@@ -21,6 +21,9 @@ The model keeps one exact binary range from preflop through river. A combo eithe
 | Recreational players often preserve medium showdown value instead of converting it into a bluff. | Pocket pairs and one-pair hands check rather than bluff, including paired-board pocket pairs such as 77. |
 | Bet size is part of the read. | Small heads-up donk/stab bluffs disappear from large observed bets; large blocker bluffs disappear from small river bets. |
 | Deep play increases the value of suited, connected hands, but action history and price still matter. | The 150bb preflop model remains wider and call-heavy without manufacturing solver-style light four-bets. |
+| Hungry Horse treats charts as a baseline that moves with opponent quality, position, depth, sizing, rake, and players left to act. | First-in raising widens by seat (about 7% UTG, 11% HJ, 14% CO, and 24% BTN) while weaker entered hands remain limps rather than turning the archetype into a LAG. |
+| Online recreational profiles range from extremely passive to highly aggressive; the stable signal is excessive VPIP and a position-dependent VPIP–PFR gap, not a single premium-only opening chart. | The model uses a middle recreational opening shape, adds good-looking suited hands later, and still folds structural trash such as 72o. |
+| Strong pairs can call or 4-bet depending on position, sizing, and opponent, and recreational populations are heterogeneous. | QQ uses a deterministic 3/6 call–4-bet split versus a 16bb late-position 3-bet; JJ uses 4/6 calls and 2/6 4-bets. Larger 3-bets reduce those 4-bet buckets. Exact suits visualize the split but carry no strategic meaning. |
 
 ## Public references
 
@@ -33,6 +36,10 @@ The model keeps one exact binary range from preflop through river. A combo eithe
 - “Low Stakes Has Changed for 2026. Most Players Won't Adapt”: https://bluffaces.com/videos/low-stakes-has-changed-for-2026-most-players-wont-adapt/
 - “I Tried Playing Perfect GTO at Low Stakes”: https://bluffaces.com/videos/i-tried-playing-perfect-gto-at-low-stakes/
 - “Short vs. Deep Stack: The Huge Adjustment You're Missing”: https://bluffaces.com/videos/short-vs-deep-stack-the-huge-adjustment-youre-missing/
+- “Big Winners Don't Memorize Preflop Charts. They Use Them Like This”: https://bluffaces.com/videos/big-winners-dont-memorize-preflop-charts-they-use-them-like-this/
+- Hand2Note's database-oriented fish profiling examples: https://www.hand2note.com/pt/Blog/Features/key-preflop-stats-player-profiling-and-basic-adjustments
+- Hand2Note's 41,000-hand passive-fish report example: https://www.hand2note.com/Help/Features/multi-player-reports
+- A transparent 45/8 loose-passive range-size reference: https://poker-reflex.com/tools/vpip-pfr-range
 - Public multiway lesson transcript/translation: https://www.gipsyteam.es/news/22-10-2025/botes-multiway-en-vivo-estrategia-completa-hungry-horse
 
 ## Guardrails
