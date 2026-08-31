@@ -18,16 +18,17 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "low-stakes-loose-passive-fish-v6",
+  id: "low-stakes-loose-passive-fish-v7",
   label: "Basic low-stakes loose-passive fish",
   description:
-    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums, defaults to check/call, and keeps reraises value-heavy.",
+    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums and good-looking suited broadways, defaults to check/call, and keeps reraises value-heavy.",
   tendencies: Object.freeze([
     "Shows a high participation rate with much less raising",
     "Enters too many pots and calls opens or isolation raises too wide",
     "Uses wider value reraises against late opens, steals, and dead money",
     "Respects early opens and larger reraises more than late or small ones",
     "Does not release AK or suited AQ preflop after voluntarily building a pot",
+    "Gives KJs, QJs, and JTs one extra call against a small reraise after entering, but releases them to larger 3-bets and every 4-bet",
     "Peels one extra small postflop bet with missed AK/AQ, but releases them to ordinary pressure",
     "Never turns TT or 99 into a 4-bet",
     "Checks medium showdown value instead of converting it into a balance bluff",
@@ -53,6 +54,8 @@ const CATEGORY_LABELS = Object.freeze([
   "straight flush",
 ]);
 const STICKY_PREFLOP_PREMIUMS = new Set(["AKs", "AKo", "AQs"]);
+const SHINY_SUITED_HANDS = new Set(["AJs", "ATs", "KQs", "KJs", "KTs", "QJs", "QTs", "JTs"]);
+const SHINY_SMALL_RERAISE_CONTINUES = new Set(["KJs", "QJs", "JTs"]);
 const RECOGNIZABLE_BIG_ACES = new Set(["AKs", "AKo", "AQs", "AQo"]);
 
 function clamp(value, minimum = 0, maximum = 1) {
@@ -312,6 +315,8 @@ export function fishPerceptionForCombo(combo, board = []) {
     const { pair, suited, gap } = classShape(combo.classLabel);
     const attachment = STICKY_PREFLOP_PREMIUMS.has(combo.classLabel)
       ? "recognizable premium"
+      : SHINY_SUITED_HANDS.has(combo.classLabel)
+        ? "good-looking suited hand"
       : pair
         ? "pocket pair"
         : suited && gap <= 1
@@ -373,6 +378,9 @@ function preflopFishDecision(combo, context, action) {
   }
   if (action === "call" && STICKY_PREFLOP_PREMIUMS.has(combo.classLabel)) {
     return fishDecision(action, perception, "The AK/AQ label is too recognizable to release preflop; the fish calls rather than finding a solver-style bluff reraise.");
+  }
+  if (action === "call" && SHINY_SUITED_HANDS.has(combo.classLabel)) {
+    return fishDecision(action, perception, "The suited faces and connected ranks look especially playable, so the fish stretches to one more call when the price is not severe.");
   }
   if (action === "call") {
     const price = openBb >= 6.5 ? "expensive but still playable" : openBb >= 4.5 ? "a little expensive" : "affordable";
@@ -592,6 +600,13 @@ function onlineFishFacingThreeBetAction(classLabel, context) {
   // Recognizable premiums are psychologically difficult for this profile to
   // release preflop. This is a call-floor, not an excuse to widen its 4-bets.
   if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
+
+  // This is intentionally narrow and price-sensitive. A fish who has already
+  // entered can get attached to suited Broadway-looking cards versus the
+  // trainer's 16bb squeeze, but the attachment disappears at 18bb+ and never
+  // creates a light 4-bet.
+  const voluntarilyEntered = ["opened", "cold-called"].includes(priorAction);
+  if (small && voluntarilyEntered && SHINY_SMALL_RERAISE_CONTINUES.has(classLabel)) return "call";
 
   if (priorAction === "opened") {
     if (veryLarge) {
