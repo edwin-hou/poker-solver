@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#07111f" />
     <meta
       name="description"
-      content="Beat Fish is an interactive 150bb six-handed poker trainer against independent low-stakes loose-passive ranges from preflop through river."
+      content="Beat Fish is an interactive 150bb six-handed poker trainer against independent line-aware low-stakes live recreational ranges from preflop through river."
     />
     <title>Beat Fish · Poker Solver</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -37,7 +37,7 @@
           <div class="eyebrow">Low-stakes exploit trainer</div>
           <h1>Beat Fish</h1>
           <p>
-            Practice 150bb six-handed $1/$2/$3 spots against five basic low-stakes loose-passive opponents. Early seats can fold,
+            Practice 150bb six-handed $1/$2/$3 spots against five line-aware low-stakes live recreational opponents. Early seats can fold,
             limp, open-raise, call, or 3-bet when the action allows it, and the curated hands favor contested
             limped and raised pots over routine open-and-everyone-folds drills.
           </p>
@@ -45,7 +45,7 @@
         <div class="profile-note">
           <strong>Modeled table</strong>
           <span>Five independent low-stakes recreational-player ranges · high participation, low aggression · size-sensitive sticky calls · context-aware value reraises</span>
-          <small>Opponent ranges never use solver charts: every exact combo is played from the fish's perspective using the obvious hand, kicker, personal draw, scary board texture, price, and recognizable-card attachment it can see. Preflop it still responds to position, sizing, dead money, and what that player did earlier. AK and suited AQ do not fold preflop; KJs, QJs, and JTs get one extra call against a small reraise after entering, but still fold to larger 3-bets and every 4-bet, while missed big aces peel only small postflop bets. Medium showdown value checks instead of becoming a paired-board bluff; TT/99 still never 4-bet. Hero advice uses the repository's 150bb six-max lookup plus disclosed best-response estimates—not a claimed exact multiway solve. Postflop, value requires worse calls and bluffs require better folds; raw showdown equity never creates a bet by itself.</small>
+          <small>Opponent ranges never use solver charts: every exact combo is played from the fish's perspective using its visible hand, kicker, personal draw, board texture, price, position, and earlier actions. Preflop still responds to position, sizing, dead money, and what that player did earlier: KJs, QJs, and JTs get one extra call against a small reraise, while TT/99 still never 4-bet. The line-aware model now separates the spots Hungry Horse repeatedly identifies as bluff-heavy from those live players heavily under-bluff: heads-up donks and checked-to stabs can contain air or strong draws; multiway donks, turn raises after prior aggression, and passive river stabs stay strongly value-weighted; a carried-aggression nut-flush blocker can take the narrow river bluff line. After the flop, missed big aces peel only small postflop bets. Medium showdown value checks instead of becoming a paired-board bluff. Hero advice uses the repository's 150bb six-max lookup plus disclosed best-response estimates—not a claimed exact multiway solve. Postflop, value requires worse calls and bluffs require better folds; raw showdown equity never creates a bet by itself.</small>
         </div>
       </section>
 
@@ -159,7 +159,7 @@
           <div>
             <div class="range-grid" id="range-grid" aria-label="Selected opponent 13 by 13 range matrix"></div>
             <div class="range-color-legend" id="range-color-legend" aria-label="Range color legend"></div>
-            <p class="range-legend">Colors show the modeled fish action—fold, call, or raise—not hand strength or probability. Split-colored cells contain exact suit combos assigned to different actions. Click a cell to list the literal combinations.</p>
+            <p class="range-legend">Colors show the modeled fish action—fold, call, or raise—not hand strength or probability. Split-colored cells contain exact suit combos assigned to different actions. Click a cell to see each literal combo labeled value, semi-bluff, or bluff when it bets or raises.</p>
             <div class="range-combo-detail" id="range-combo-detail">
               <div class="section-kicker">Exact combos</div>
               <strong id="range-combo-detail-title">Select a hand class</strong>
@@ -194,7 +194,7 @@
           </div>
           <div class="model-disclosure">
             <strong>What this is</strong>
-            <span>A heads-up deterministic loose-passive range estimate using the same binary rules as the trainer.</span>
+            <span>A heads-up deterministic line-aware range estimate using the same binary rules as the trainer.</span>
             <small>Heads-up only: it does not model extra players. It is not a site-parser, player-specific read, or GTO solve. Unrecognized lines are reported instead of silently guessed.</small>
           </div>
         </div>
@@ -259,6 +259,6 @@ Fish checks</textarea>
       </section>
     </main>
 
-    <script type="module" src="trainer.js"></script>
+    <script type="module" src="trainer.js?v=line-aware-v9"></script>
   </body>
 </html>

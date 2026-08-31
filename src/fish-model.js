@@ -18,10 +18,10 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "low-stakes-loose-passive-fish-v7",
-  label: "Basic low-stakes loose-passive fish",
+  id: "line-aware-live-recreational-v8",
+  label: "Line-aware low-stakes live recreational",
   description:
-    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums and good-looking suited broadways, defaults to check/call, and keeps reraises value-heavy.",
+    "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums and good-looking suited broadways, and bluffs only in recognizable population lines rather than at equilibrium frequencies.",
   tendencies: Object.freeze([
     "Shows a high participation rate with much less raising",
     "Enters too many pots and calls opens or isolation raises too wide",
@@ -35,8 +35,11 @@ export const FISH_PROFILE = Object.freeze({
     "Judges every exact combo by the obvious hand, draw, kicker, board danger, and price it can see",
     "Calls pairs less often as the bet and street get larger",
     "Chases obvious flush and straight draws too often",
-    "Raises strong made hands far more often than bluffs",
-    "Large river aggression is heavily value-weighted",
+    "Stabs too much when checked to heads-up and over-bluffs some heads-up donk-bet lines",
+    "Uses strong draws as occasional flop semi-bluff raises, but turn raises after prior aggression stay almost pure value",
+    "Multiway donks, river stabs after passive action, and check-back-flop then raise-turn lines are strongly under-bluffed",
+    "Can find the conspicuous nut-flush-blocker river bluff after carrying aggression through earlier streets",
+    "Large river aggression remains heavily value-weighted outside those narrow blocker lines",
   ]),
 });
 
@@ -339,7 +342,7 @@ export function fishPerceptionForCombo(combo, board = []) {
     if (["top-pair", "middle-pair", "bottom-pair"].includes(features.pairTier) && features.kickerTier) {
       madeHand += ` with a ${features.kickerTier} kicker`;
     }
-  } else if (features.unpairedPremium) {
+  } else if (features.category === 0 && features.unpairedPremium) {
     madeHand = "missed AK/AQ overcards";
   } else if (features.category === 0 && features.aceHigh) {
     madeHand = "ace high";
@@ -366,8 +369,14 @@ export function fishPerceptionForCombo(combo, board = []) {
   };
 }
 
-function fishDecision(action, perception, reason) {
-  return Object.freeze({ action, perception: perception.label, reason });
+function fishDecision(action, perception, reason, details = {}) {
+  return Object.freeze({
+    action,
+    perception: perception.label,
+    reason,
+    intent: details.intent ?? null,
+    betFraction: details.betFraction ?? null,
+  });
 }
 
 function preflopFishDecision(combo, context, action) {
@@ -431,6 +440,74 @@ function raisesObviousValue(features, betFraction) {
     return !features.fourFlushBoard && !features.fourStraightBoard;
   }
   return false;
+}
+
+function contextOpponentCount(context) {
+  if (context.headsUp === true) return 1;
+  return Math.max(1, Number(context.opponentCount ?? (context.type === "postflop-multiway-first" ? 2 : 1)));
+}
+
+function isHeadsUp(context) {
+  return contextOpponentCount(context) === 1;
+}
+
+function dominantBoardSuit(board, minimum = 3) {
+  const counts = new Map();
+  for (const card of board) counts.set(suitIndex(card), (counts.get(suitIndex(card)) ?? 0) + 1);
+  return [...counts].find(([, count]) => count >= minimum)?.[0] ?? null;
+}
+
+function hasNutFlushBlocker(combo, board) {
+  const suit = dominantBoardSuit(board, 3);
+  return suit !== null
+    && combo.cards.some((card) => suitIndex(card) === suit && rankValue(card) === 14)
+    && postflopHandFeatures(combo, board).category < 5;
+}
+
+function turnPairedBoard(board) {
+  if (board.length !== 4) return false;
+  const turnRank = rankValue(board[3]);
+  return board.slice(0, 3).some((card) => rankValue(card) === turnRank);
+}
+
+function aceHighTurn(board) {
+  return board.length === 4 && rankValue(board[3]) === 14;
+}
+
+function hasObviousDraw(features) {
+  return features.flushDraw || Boolean(features.straightDraw);
+}
+
+function isStrongSemiBluff(features) {
+  return (features.flushDraw && features.straightDraw === "open-ended")
+    || (features.nutFlushDraw && Boolean(features.straightDraw));
+}
+
+function isHeadsUpDonkBluff(features, street) {
+  if (street === "river" || features.aggressionTier === "showdown") return false;
+  if (features.flushDraw || features.straightDraw) return true;
+  return street === "flop" && (features.twoOvercards || features.aceHigh);
+}
+
+function isMergedHeadsUpDonkValue(features) {
+  return features.pairTier === "bottom-pair"
+    || (features.pairTier === "top-pair" && features.kickerTier === "weak");
+}
+
+function isCheckedToStab(features, street) {
+  if (street === "river" || features.aggressionTier === "showdown") return false;
+  if (hasObviousDraw(features)) return true;
+  return street === "flop" && (features.twoOvercards || features.aceHigh);
+}
+
+function isNarrowRiverBlockerBluff(combo, board, context, features) {
+  return board.length === 5
+    && isHeadsUp(context)
+    && features.aggressionTier === "air"
+    && hasNutFlushBlocker(combo, board)
+    && Number(context.barrelCount ?? 0) >= 2
+    && context.previousFishAction === "bet"
+    && context.passiveRiverStab !== true;
 }
 
 function isPremiumThreeBet(classLabel) {
@@ -696,32 +773,105 @@ export function fishDecisionForCombo(combo, context = {}) {
   const perception = fishPerceptionForCombo(combo, board);
   const river = board.length === 5;
   const street = board.length === 3 ? "flop" : board.length === 4 ? "turn" : "river";
+  const headsUp = isHeadsUp(context);
+  const checkedTo = context.checkedTo === true || context.inPosition === true;
+  const donk = context.donk === true || (!checkedTo && context.wasPreflopAggressor === false);
+  const observedBetFraction = Number(context.betFraction);
+  const hasObservedBetSize = Number.isFinite(observedBetFraction);
+  const observedSmallBet = !hasObservedBetSize || observedBetFraction <= 0.50;
+  const observedLargeBet = !hasObservedBetSize || observedBetFraction >= 0.90;
 
   if (type === "postflop-multiway-first") {
-    // Multiway population logic: obvious stack-off value tends to fast-play,
-    // while medium showdown value and air check. A nutty combo draw may also
-    // stab because the recreational player sees many outs, not because it is
-    // balancing a range. Observing checks can therefore cap the belief range.
+    // Multiway donks are one of the live pool's most under-bluffed actions.
+    // Heads-up is deliberately routed through the looser donk/stab rules below.
+    if (headsUp && donk && observedSmallBet && isHeadsUpDonkBluff(features, street)) {
+      const intent = hasObviousDraw(features) ? "semi-bluff" : "bluff";
+      return fishDecision(
+        "bet",
+        perception,
+        intent === "semi-bluff"
+          ? `Heads-up, the fish overuses a donk with ${perception.draw}; this is a real semi-bluff line, not value.`
+          : "Heads-up donk bets are one of the population's bluff-heavy lines, so obvious overcards or ace high can stab once.",
+        { intent, betFraction: 0.33 },
+      );
+    }
     if (features.aggressionTier === "strong" && raisesObviousValue(features, 0.50)) {
-      return fishDecision("bet", perception, `The fish sees ${perception.madeHand} as obvious multiway value and bets before another card can kill the action.`);
+      return fishDecision("bet", perception, `The fish sees ${perception.madeHand} as obvious multiway value and bets before another card can kill the action.`, { intent: "value", betFraction: 0.33 });
     }
     if (!river && features.nutFlushDraw && features.straightDraw === "open-ended") {
-      return fishDecision("bet", perception, "The nut combo draw looks strong enough to bet into several players, even without a balanced semi-bluff plan.");
+      return fishDecision("bet", perception, "Only the nut combo draw survives the model's multiway bluff filter; ordinary draws check because action behind is dangerous.", { intent: "semi-bluff", betFraction: 0.33 });
+    }
+    if (headsUp && donk && observedSmallBet && isMergedHeadsUpDonkValue(features)) {
+      return fishDecision("bet", perception, `The fish uses a small heads-up donk as a merged protection/value bet with ${perception.madeHand}; it is not turning the pair into a bluff.`, { intent: "value", betFraction: 0.33 });
     }
     if (features.aggressionTier === "showdown") {
       return fishDecision("check", perception, `The fish wants to show down ${perception.madeHand} and checks rather than turning it into a multiway bluff.`);
     }
-    return fishDecision("check", perception, `With several players involved and no obvious stack-off hand, the fish checks ${perception.label}.`);
+    return fishDecision("check", perception, `With several players involved, a donk would be strongly value-weighted. ${perception.label} does not clear that threshold.`);
   }
 
   if (type === "postflop-first") {
-    // The passive default is check. Obvious monsters and huge combo draws are
-    // the main hands this archetype decides it needs to "protect" by betting.
+    // Aggression depends on how this opportunity arose. Live players stab too
+    // often when checked to or when donking heads-up, but their multiway donks
+    // and river stabs after passive action remain extremely honest.
     if (features.aggressionTier === "strong" && raisesObviousValue(features, 0.50)) {
-      return fishDecision("bet", perception, `The fish sees ${perception.madeHand} as obvious value and bets to get paid or protect it.`);
+      return fishDecision("bet", perception, `The fish sees ${perception.madeHand} as obvious value and bets to get paid or protect it.`, { intent: "value", betFraction: headsUp ? 0.66 : 0.33 });
     }
-    if (!river && features.flushDraw && features.straightDraw === "open-ended") {
-      return fishDecision("bet", perception, "The combo draw looks almost like a made hand, so the fish bets it for protection rather than as a balanced semi-bluff.");
+
+    if (observedLargeBet && isNarrowRiverBlockerBluff(combo, board, context, features)) {
+      return fishDecision(
+        "bet",
+        perception,
+        "The fish carried aggression through two streets and now recognizes the ace-of-suit blocker. This narrow, conspicuous river jam is the model's main pure-bluff exception.",
+        { intent: "bluff", betFraction: 1.25 },
+      );
+    }
+
+    if (river) {
+      if (features.aggressionTier === "showdown") {
+        return fishDecision("check", perception, `The fish takes ${perception.madeHand} to showdown instead of inventing a river bluff.`);
+      }
+      return fishDecision("check", perception, context.passiveRiverStab
+        ? "After passive earlier streets, the live population under-bluffs this river stab; air checks again."
+        : "Without the narrow nut-blocker barrel story, the fish gives up its river air.");
+    }
+
+    const panicSpr = Number(context.spr ?? Infinity) < 2;
+    if (panicSpr && (features.nutFlushDraw || features.straightDraw === "open-ended")) {
+      return fishDecision("bet", perception, "With less than two pots behind, the fish shoves the obvious strong draw to avoid a difficult river decision.", { intent: "semi-bluff", betFraction: 1 });
+    }
+
+    const pairedTurnBluff = features.aggressionTier === "air"
+      && turnPairedBoard(board)
+      && context.previousFishAction === "bet";
+    const aceTurnBarrel = features.aggressionTier === "air"
+      && aceHighTurn(board)
+      && context.wasPreflopAggressor
+      && context.previousFishAction === "bet";
+    if (checkedTo && headsUp && (isCheckedToStab(features, street) || pairedTurnBluff || aceTurnBarrel)) {
+      const intent = hasObviousDraw(features) ? "semi-bluff" : "bluff";
+      const sizingFits = street === "flop" ? observedSmallBet : !hasObservedBetSize || observedBetFraction <= 0.75;
+      if (sizingFits && (street === "flop" || pairedTurnBluff || aceTurnBarrel || hasObviousDraw(features))) {
+        const reason = pairedTurnBluff
+          ? "The turn paired, reducing obvious value combinations; this is a population bluff trigger after the flop stab."
+          : aceTurnBarrel
+            ? "As the preflop raiser, the fish over-barrels the ace turn because the card looks like it belongs to its range."
+            : `${perception.label} takes the common heads-up checked-to stab; this range is intentionally wider than a multiway lead range.`;
+        return fishDecision("bet", perception, reason, { intent, betFraction: street === "flop" ? 0.33 : 0.66 });
+      }
+    }
+
+    if (donk && headsUp && observedSmallBet && isHeadsUpDonkBluff(features, street)) {
+      const intent = hasObviousDraw(features) ? "semi-bluff" : "bluff";
+      return fishDecision("bet", perception, `This is a heads-up donk, a line live players bluff much more often than its multiway version. ${perception.label} is the fish's obvious candidate.`, { intent, betFraction: 0.33 });
+    }
+
+    if (donk && headsUp && observedSmallBet && isMergedHeadsUpDonkValue(features)) {
+      return fishDecision("bet", perception, `The small heads-up donk is a merged protection/value bet with ${perception.madeHand}; the fish is not converting showdown value into a bluff.`, { intent: "value", betFraction: 0.33 });
+    }
+
+    if (!headsUp && isStrongSemiBluff(features) && checkedTo) {
+      return fishDecision("bet", perception, "The draw is strong enough to stab when checked to, but weaker multiway draws remain checks.", { intent: "semi-bluff", betFraction: 0.33 });
     }
     if (features.aggressionTier === "showdown") {
       return fishDecision("check", perception, `The fish wants to show down ${perception.madeHand}; it does not convert that hand into a bluff.`);
@@ -735,13 +885,28 @@ export function fishDecisionForCombo(combo, context = {}) {
   if (type === "postflop-vs-bet") {
     const betFraction = clamp(Number(context.betFraction ?? 0.66), 0.15, 2);
 
-    // Raises are simple and face-up: strong made hands, with essentially no
-    // river bluff-raising. This is the most important exploitable tendency.
+    // Raises remain value-heavy. The narrow exception is a visible strong draw
+    // raising a small flop bet heads-up; turn raises after earlier aggression,
+    // multiway raises, and river raises do not receive generic bluff combos.
     if (features.aggressionTier === "strong") {
       if (raisesObviousValue(features, betFraction)) {
-        return fishDecision("raise", perception, `The fish sees ${perception.madeHand} as obvious value and raises without looking for a balanced bluff.`);
+        return fishDecision("raise", perception, `The fish sees ${perception.madeHand} as obvious value and raises without looking for a balanced bluff.`, { intent: "value" });
       }
       return fishDecision("call", perception, `The fish likes ${perception.madeHand}, but ${perception.danger} makes a call feel safer than a raise.`);
+    }
+
+    const flopSemiBluffRaise = street === "flop"
+      && betFraction <= 0.50
+      && (isStrongSemiBluff(features) || (headsUp && features.nutFlushDraw));
+    if (flopSemiBluffRaise) {
+      return fishDecision(
+        "raise",
+        perception,
+        headsUp
+          ? `The small flop bet triggers one of the fish's few credible bluff raises: ${perception.draw} looks strong enough to play fast.`
+          : "Multiway, only the nut combo draw is allowed to take the rare semi-bluff raise; ordinary draws call or fold.",
+        { intent: "semi-bluff" },
+      );
     }
 
     // Calling-station behavior is still size- and street-sensitive. Medium
