@@ -13,7 +13,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
 
   assert.match(solverIndex, /href="trainer\.html"/);
   assert.match(trainer, /<title>Beat Fish · Poker Solver<\/title>/);
-  assert.match(trainer, /id="reveal-range"/);
+  assert.match(trainer, /id="reveal-range" hidden/);
+  assert.match(trainer, /id="decision-basis" hidden/);
   assert.match(trainer, /id="history-back"/);
   assert.match(trainer, /id="history-forward"/);
   assert.match(trainer, /id="branch-trail"/);
@@ -83,6 +84,11 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /Explore this branch/);
   assert.match(trainerJs, /View saved branch/);
   assert.match(trainerJs, /choiceReasons/);
+  assert.match(trainerJs, /const answerRevealed = moment\.kind !== "decision" \|\| Boolean\(moment\.answer\)/);
+  assert.match(trainerJs, /revealedDetail = answerRevealed/);
+  assert.match(trainerJs, /elements\.revealRange\.hidden = !answerRevealed/);
+  assert.match(trainerJs, /Grading, strategy explanations, and opponent ranges unlock only after you commit/);
+  assert.match(trainerJs, /moment\?\.kind === "decision" && !moment\.answer/);
   assert.match(trainerJs, /recommendHeroPostflopPlan/);
   assert.doesNotMatch(trainerJs, /Thin value \/ cheap pressure/);
   assert.match(trainerJs, /What is wrong with this choice/);
@@ -105,6 +111,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerCss, /\.exact-combo-thought/);
   assert.match(trainerCss, /\.opponent-seats/);
   assert.match(trainerCss, /\.opponent-range-picker/);
+  assert.match(trainerCss, /\.study-actions \.button\[hidden\] \{ display: none; \}/);
 
   assert.match(fishModel, /Deterministic novice action rule/);
   assert.match(fishModel, /fishActionForCombo/);
