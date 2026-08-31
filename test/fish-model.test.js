@@ -134,6 +134,39 @@ test("recognizable AK and suited AQ never fold preflop but do not become automat
   }
 });
 
+test("good-looking suited hands widen only the small-reraise continue range", () => {
+  const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
+  const shiny = ["KJs", "QJs", "JTs"].map((label) => firstClass(prior, label));
+  const offsuit = ["KJo", "QJo"].map((label) => firstClass(prior, label));
+  assert.ok([...shiny, ...offsuit].every(Boolean));
+
+  const smallSqueeze = {
+    type: "preflop-vs-threebet",
+    position: "CO",
+    threeBettorPosition: "BTN",
+    threeBetBb: 16,
+    priorAction: "cold-called",
+    openerPosition: "HJ",
+    coldCallerCount: 1,
+  };
+  const mediumSqueeze = { ...smallSqueeze, threeBetBb: 18 };
+  const fourBet = {
+    type: "preflop-vs-fourbet",
+    position: "CO",
+    fourBettorPosition: "BTN",
+    fourBetBb: 35,
+    priorAction: "threebet",
+  };
+
+  for (const combo of shiny) {
+    assert.equal(fishActionForCombo(combo, smallSqueeze), "call");
+    assert.equal(fishActionForCombo(combo, mediumSqueeze), "fold");
+    assert.equal(fishActionForCombo(combo, fourBet), "fold");
+    assert.match(fishDecisionForCombo(combo, smallSqueeze).reason, /suited faces and connected ranks/);
+  }
+  assert.ok(offsuit.every((combo) => fishActionForCombo(combo, smallSqueeze) === "fold"));
+});
+
 test("low-stakes fish reraises react to opener position, dead money, sizing, and prior action", () => {
   const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
   const tt = firstClass(prior, "TT");
