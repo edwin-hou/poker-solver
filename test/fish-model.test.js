@@ -119,7 +119,7 @@ test("low-stakes fish mixes exact QQ/JJ combos while never 4-betting TT or 99", 
   assert.equal(fishActionForCombo(nines, facingFourBet), "fold");
 });
 
-test("recreational first-in raises widen by position without becoming any-two-card opens", () => {
+test("recreational first-in raises include mixed trashy favorites without becoming any-two-card opens", () => {
   const range = createFishRange();
   const raiseCounts = Object.fromEntries(["UTG", "HJ", "CO", "BTN", "SB"].map((position) => [
     position,
@@ -130,7 +130,7 @@ test("recreational first-in raises widen by position without becoming any-two-ca
     }) === "raise").length,
   ]));
 
-  assert.deepEqual(raiseCounts, { UTG: 94, HJ: 140, CO: 190, BTN: 312, SB: 242 });
+  assert.deepEqual(raiseCounts, { UTG: 125, HJ: 180, CO: 258, BTN: 412, SB: 296 });
   assert.ok(raiseCounts.UTG < raiseCounts.HJ && raiseCounts.HJ < raiseCounts.CO && raiseCounts.CO < raiseCounts.BTN);
 
   const aceJack = firstClass(range, "AJs");
@@ -139,6 +139,17 @@ test("recreational first-in raises widen by position without becoming any-two-ca
   assert.equal(fishActionForCombo(aceJack, { type: "sixmax-unopened", position: "UTG" }), "raise");
   assert.equal(fishActionForCombo(suitedConnector, { type: "sixmax-unopened", position: "BTN" }), "raise");
   assert.equal(fishActionForCombo(trash, { type: "sixmax-unopened", position: "BTN" }), "fold");
+
+  const utgContext = { type: "sixmax-unopened", position: "UTG" };
+  const mixedClasses = { "22": [1, 5], A5s: [1, 3], T9s: [2, 2] };
+  for (const [classLabel, [raises, passive]] of Object.entries(mixedClasses)) {
+    const combos = range.filter((combo) => combo.classLabel === classLabel);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, utgContext) === "raise").length, raises);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, utgContext) === "limp").length, passive);
+  }
+  const mixedDeuces = range.filter((combo) => combo.classLabel === "22");
+  assert.match(fishDecisionForCombo(mixedDeuces.find((combo) => fishActionForCombo(combo, utgContext) === "raise"), utgContext).reason, /deterministic population split/);
+  assert.match(fishDecisionForCombo(mixedDeuces.find((combo) => fishActionForCombo(combo, utgContext) === "limp"), utgContext).reason, /passive part of the recreational population/);
 });
 
 test("recognizable AK and suited AQ never fold preflop but do not become automatic reraises", () => {
@@ -200,11 +211,12 @@ test("good-looking suited hands widen only the small-reraise continue range", ()
 
 test("low-stakes fish reraises react to opener position, dead money, sizing, and prior action", () => {
   const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
-  const tt = firstClass(prior, "TT");
+  const tens = prior.filter((combo) => combo.classLabel === "TT");
+  const kingQueenSuited = prior.filter((combo) => combo.classLabel === "KQs");
   const eights = firstClass(prior, "88");
   const queens = prior.filter((combo) => combo.classLabel === "QQ");
   const jacks = prior.filter((combo) => combo.classLabel === "JJ");
-  assert.ok(tt && eights && queens.length === 6 && jacks.length === 6);
+  assert.ok(tens.length === 6 && kingQueenSuited.length === 4 && eights && queens.length === 6 && jacks.length === 6);
 
   const versusUtg = {
     type: "sixmax-vs-open",
@@ -213,8 +225,18 @@ test("low-stakes fish reraises react to opener position, dead money, sizing, and
     openBb: 4,
     coldCallerCount: 0,
   };
-  assert.equal(fishActionForCombo(tt, versusUtg), "call");
-  assert.equal(fishActionForCombo(tt, { ...versusUtg, coldCallerCount: 1 }), "raise");
+  assert.equal(tens.filter((combo) => fishActionForCombo(combo, versusUtg) === "raise").length, 2);
+  assert.equal(tens.filter((combo) => fishActionForCombo(combo, versusUtg) === "call").length, 4);
+  assert.equal(kingQueenSuited.filter((combo) => fishActionForCombo(combo, versusUtg) === "raise").length, 1);
+  assert.equal(kingQueenSuited.filter((combo) => fishActionForCombo(combo, versusUtg) === "call").length, 3);
+  const squeezed = { ...versusUtg, coldCallerCount: 1 };
+  assert.equal(tens.filter((combo) => fishActionForCombo(combo, squeezed) === "raise").length, 3);
+  assert.equal(kingQueenSuited.filter((combo) => fishActionForCombo(combo, squeezed) === "raise").length, 2);
+  assert.match(fishDecisionForCombo(tens.find((combo) => fishActionForCombo(combo, squeezed) === "raise"), squeezed).reason, /occasional live recreational reraise/);
+
+  const largeEarlyOpen = { ...versusUtg, openBb: 6 };
+  assert.equal(tens.filter((combo) => fishActionForCombo(combo, largeEarlyOpen) === "raise").length, 1);
+  assert.ok(kingQueenSuited.every((combo) => fishActionForCombo(combo, largeEarlyOpen) === "call"));
 
   const versusButtonSteal = {
     type: "sixmax-vs-open",

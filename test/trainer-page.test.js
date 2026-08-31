@@ -42,7 +42,9 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /Opponent ranges never use solver charts/);
   assert.match(trainer, /TT\/99 still never 4-bet/);
   assert.match(trainer, /KJs, QJs, and JTs get one extra call against a small reraise/);
-  assert.match(trainer, /First-in raises now widen from about 7% UTG to 24% BTN/);
+  assert.match(trainer, /First-in raises now widen from about 9% UTG to 31% BTN/);
+  assert.match(trainer, /Low Ax, small pairs such as 22, and hands such as T9s use literal combo splits/);
+  assert.match(trainer, /TT and KQs now take occasional size- and position-sensitive 3-bets but remain mostly calls/);
   assert.match(trainer, /QQ and JJ split their literal suit combinations between calls and 4-bets/);
   assert.match(trainer, /suits themselves do not cause the decision/);
   assert.match(trainer, /missed big aces peel only small bets/);
@@ -125,6 +127,9 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.doesNotMatch(fishModel, /preflopLookupStrategyForClass/);
   assert.match(fishModel, /Never turns TT or 99 into a 4-bet/);
   assert.match(fishModel, /mixedPairFourBet/);
+  assert.match(fishModel, /MIXED_OPEN_RAISE_COUNTS/);
+  assert.match(fishModel, /mixedThreeBetCount/);
+  assert.match(fishModel, /exactComboMixIndex/);
   assert.match(fishModel, /PAIR_MIX_ORDER/);
   assert.match(fishModel, /isNarrowRiverBlockerBluff/);
   assert.match(fishModel, /isHeadsUpDonkBluff/);

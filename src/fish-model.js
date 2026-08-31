@@ -18,7 +18,7 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "line-aware-live-recreational-v9",
+  id: "line-aware-live-recreational-v10",
   label: "Line-aware low-stakes live recreational",
   description:
     "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums and good-looking suited broadways, and bluffs only in recognizable population lines rather than at equilibrium frequencies.",
@@ -26,6 +26,7 @@ export const FISH_PROFILE = Object.freeze({
     "Shows a high participation rate with much less raising",
     "Enters too many pots and calls opens or isolation raises too wide",
     "Uses wider value reraises against late opens, steals, and dead money",
+    "Sometimes raises small pairs, suited aces, connectors, TT, and KQs, but keeps most of those hands in passive lines",
     "Respects early opens and larger reraises more than late or small ones",
     "Does not release AK or suited AQ preflop after voluntarily building a pot",
     "Gives KJs, QJs, and JTs one extra call against a small reraise after entering, but releases them to larger 3-bets and every 4-bet",
@@ -383,6 +384,29 @@ function fishDecision(action, perception, reason, details = {}) {
 function preflopFishDecision(combo, context, action) {
   const perception = fishPerceptionForCombo(combo);
   const openBb = Number(context.openBb ?? context.threeBetBb ?? context.fourBetBb ?? 0);
+  const position = context.position ?? "CO";
+  const mixedOpen = ["preflop-unopened", "sixmax-unopened"].includes(context.type)
+    && mixedOpenRaiseCount(combo.classLabel, position) > 0;
+  if (mixedOpen) {
+    return fishDecision(
+      action,
+      perception,
+      action === "raise"
+        ? `This exact ${combo.classLabel} combo represents the part of the recreational population that decides the hand looks good enough to open-raise from ${position}. The suit assignment is only a deterministic population split.`
+        : `This exact ${combo.classLabel} combo represents the more passive part of the recreational population, which ${action === "limp" ? "limps to see a flop" : "does not enter from this seat"} instead of raising it. Suits do not cause the decision.`,
+    );
+  }
+  const mixedThreeBet = ["preflop-vs-open", "sixmax-vs-open"].includes(context.type)
+    && ["TT", "KQs"].includes(combo.classLabel);
+  if (mixedThreeBet) {
+    return fishDecision(
+      action,
+      perception,
+      action === "raise"
+        ? `This exact ${combo.classLabel} combo represents the occasional live recreational reraise, encouraged by position, a smaller open, or dead money. Most players in this profile still take the passive line with the same hand class.`
+        : `This exact ${combo.classLabel} combo stays in the fish's usual ${action} bucket rather than becoming an automatic 3-bet. The exact-combo split represents player-to-player variation, not suit strategy.`,
+    );
+  }
   const mixedPairResponse = context.type === "preflop-vs-threebet"
     && ["QQ", "JJ"].includes(combo.classLabel)
     && ["raise", "call"].includes(action);
@@ -555,17 +579,55 @@ function callsOpen(classLabel, openBb) {
   return false;
 }
 
-function actionUnopened(classLabel) {
-  return onlineFishUnopenedAction(classLabel, { position: "CO", type: "sixmax-unopened" });
+function actionUnopened(combo) {
+  return onlineFishUnopenedAction(combo, { position: "CO", type: "sixmax-unopened" });
 }
 
 const OBVIOUS_OPEN_RAISES = Object.freeze({
   UTG: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "AKs", "AKo", "AQs", "AQo", "AJs", "ATs", "KQs", "KJs", "QJs"]),
   HJ: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "A9s", "KQs", "KQo", "KJs", "KTs", "QJs", "QTs", "JTs"]),
-  CO: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A8s", "KQs", "KQo", "KJs", "KJo", "KTs", "QJs", "QJo", "QTs", "JTs", "T9s"]),
+  CO: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A8s", "KQs", "KQo", "KJs", "KJo", "KTs", "QJs", "QJo", "QTs", "JTs"]),
   BTN: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "55", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A9o", "A8s", "A8o", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s", "KQs", "KQo", "KJs", "KJo", "KTs", "KTo", "K9s", "K8s", "QJs", "QJo", "QTs", "QTo", "Q9s", "JTs", "JTo", "J9s", "T9s", "98s", "87s", "76s", "65s"]),
   SB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A9o", "A8s", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s", "KQs", "KQo", "KJs", "KJo", "KTs", "KTo", "K9s", "QJs", "QJo", "QTs", "JTs", "T9s"]),
   BB: new Set(["AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "AKs", "AKo", "AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "A9s", "A9o", "A8s", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s", "KQs", "KQo", "KJs", "KJo", "KTs", "KTo", "K9s", "QJs", "QJo", "QTs", "JTs", "T9s"]),
+});
+
+const MIXED_OPEN_RAISE_COUNTS = Object.freeze({
+  UTG: Object.freeze({
+    "77": 2, "66": 2, "55": 2, "44": 1, "33": 1, "22": 1,
+    A9s: 1, A8s: 1, A7s: 1, A6s: 1, A5s: 1, A4s: 1, A3s: 1, A2s: 1,
+    AJo: 3, ATo: 2, KTs: 2, QTs: 2, JTs: 2, T9s: 2, "98s": 1,
+  }),
+  HJ: Object.freeze({
+    "66": 2, "55": 2, "44": 2, "33": 2, "22": 2,
+    A8s: 2, A7s: 2, A6s: 2, A5s: 2, A4s: 2, A3s: 2, A2s: 2,
+    ATo: 4, K9s: 2, Q9s: 2, J9s: 2, T9s: 3, "98s": 2, "87s": 1,
+  }),
+  CO: Object.freeze({
+    "55": 3, "44": 3, "33": 3, "22": 3,
+    A7s: 3, A6s: 3, A5s: 3, A4s: 3, A3s: 3, A2s: 3,
+    A9o: 6, A8o: 4, K9s: 3, Q9s: 3, J9s: 3, T9s: 3,
+    "98s": 3, "87s": 2, "76s": 2, "65s": 2, KTo: 4, QTo: 4, J9o: 3,
+  }),
+  BTN: Object.freeze({
+    "44": 4, "33": 4, "22": 4,
+    A7o: 6, A6o: 6, A5o: 6, A4o: 6, A3o: 6, A2o: 6,
+    K9o: 6, K7s: 3, K6s: 3, K5s: 3, K4s: 2,
+    Q8s: 3, Q7s: 3, J8s: 3, T8s: 3, "54s": 3, "43s": 2,
+    Q9o: 5, J9o: 5, T9o: 4, "98o": 4,
+  }),
+  SB: Object.freeze({
+    "55": 3, "44": 3, "33": 3, "22": 3,
+    A8o: 4, A7o: 4, A6o: 4, A5o: 4,
+    K8s: 3, K7s: 3, Q9s: 3, J9s: 3, T8s: 2, "98s": 2, "87s": 2,
+    K9o: 4, Q9o: 4,
+  }),
+  BB: Object.freeze({
+    "55": 3, "44": 3, "33": 3, "22": 3,
+    A8o: 4, A7o: 4, A6o: 4, A5o: 4,
+    K8s: 3, K7s: 3, Q9s: 3, J9s: 3, T8s: 2, "98s": 2, "87s": 2,
+    K9o: 4, Q9o: 4,
+  }),
 });
 
 const ISOLATION_RAISE_ADDITIONS = Object.freeze({
@@ -621,16 +683,42 @@ function loosePassiveEntry(classLabel, position, afterLimp) {
   return false;
 }
 
-function onlineFishUnopenedAction(classLabel, context) {
+function mixedOpenRaiseCount(classLabel, position) {
+  return Number(MIXED_OPEN_RAISE_COUNTS[position]?.[classLabel] ?? 0);
+}
+
+function onlineFishUnopenedAction(combo, context) {
+  const classLabel = combo.classLabel;
   const position = context.position ?? "CO";
   const afterLimp = context.type === "sixmax-after-limp";
   const obviousRaises = OBVIOUS_OPEN_RAISES[position] ?? OBVIOUS_OPEN_RAISES.CO;
   const isolationAdds = ISOLATION_RAISE_ADDITIONS[position] ?? ISOLATION_RAISE_ADDITIONS.CO;
   if (obviousRaises.has(classLabel) || (afterLimp && isolationAdds.has(classLabel))) return "raise";
+  const mixedRaises = mixedOpenRaiseCount(classLabel, position);
+  if (!afterLimp && mixedRaises > 0 && exactComboMixIndex(combo) < mixedRaises) return "raise";
   return loosePassiveEntry(classLabel, position, afterLimp) ? "limp" : "fold";
 }
 
-function onlineFishFacingOpenAction(classLabel, context) {
+function mixedThreeBetCount(classLabel, context) {
+  const openerPosition = context.openerPosition ?? "CO";
+  const base = {
+    UTG: { TT: 2, KQs: 1 },
+    HJ: { TT: 3, KQs: 2 },
+    CO: { TT: 4, KQs: 2 },
+    BTN: { TT: 4, KQs: 3 },
+    SB: { TT: 4, KQs: 3 },
+    BB: { TT: 4, KQs: 3 },
+  }[openerPosition]?.[classLabel] ?? 0;
+  if (!base) return 0;
+  const openBb = Number(context.openBb ?? 4);
+  if (openBb >= 5) return classLabel === "TT" ? Math.max(1, base - 2) : 0;
+  const deadMoneyBoost = Number(context.coldCallerCount ?? 0) > 0 ? 1 : 0;
+  const blindStealBoost = ["SB", "BB"].includes(context.position) && isLatePosition(openerPosition) ? 1 : 0;
+  return Math.min(classLabel === "TT" ? 6 : 4, base + deadMoneyBoost + blindStealBoost);
+}
+
+function onlineFishFacingOpenAction(combo, context) {
+  const classLabel = combo.classLabel;
   const openBb = Number(context.openBb ?? 4);
   const openerPosition = context.openerPosition ?? "CO";
   const position = context.position ?? "BB";
@@ -656,15 +744,30 @@ function onlineFishFacingOpenAction(classLabel, context) {
     for (const hand of LARGE_OPEN_RERAISE_EXCLUSIONS) raises.delete(hand);
   }
 
+  if (["TT", "KQs"].includes(classLabel)) {
+    return exactComboMixIndex(combo) < mixedThreeBetCount(classLabel, context)
+      ? "raise"
+      : callsOpen(classLabel, openBb) ? "call" : "fold";
+  }
   if (raises.has(classLabel)) return "raise";
   return callsOpen(classLabel, openBb) ? "call" : "fold";
 }
 
 const PAIR_MIX_ORDER = Object.freeze(["03", "12", "02", "13", "01", "23"]);
+const SUITED_MIX_ORDER = Object.freeze([3, 1, 0, 2]);
+const OFFSUIT_MIX_ORDER = Object.freeze(["03", "12", "21", "30", "02", "13", "20", "31", "01", "10", "23", "32"]);
 
 function pairMixIndex(combo) {
   const key = combo.cards.map(suitIndex).sort((a, b) => a - b).join("");
   return PAIR_MIX_ORDER.indexOf(key);
+}
+
+function exactComboMixIndex(combo) {
+  const { pair, suited } = classShape(combo.classLabel);
+  if (pair) return pairMixIndex(combo);
+  if (suited) return SUITED_MIX_ORDER.indexOf(suitIndex(combo.cards[0]));
+  const [lowCard, highCard] = [...combo.cards].sort((a, b) => rankValue(a) - rankValue(b));
+  return OFFSUIT_MIX_ORDER.indexOf(`${suitIndex(highCard)}${suitIndex(lowCard)}`);
 }
 
 function mixedPairFourBet(combo, threeBetBb) {
@@ -780,13 +883,13 @@ export function fishDecisionForCombo(combo, context = {}) {
   const type = context.type;
 
   if (type === "preflop-unopened") {
-    return preflopFishDecision(combo, context, actionUnopened(combo.classLabel));
+    return preflopFishDecision(combo, context, actionUnopened(combo));
   }
   if (type === "sixmax-unopened" || type === "sixmax-after-limp") {
-    return preflopFishDecision(combo, context, onlineFishUnopenedAction(combo.classLabel, context));
+    return preflopFishDecision(combo, context, onlineFishUnopenedAction(combo, context));
   }
   if (type === "sixmax-vs-open") {
-    return preflopFishDecision(combo, context, onlineFishFacingOpenAction(combo.classLabel, context));
+    return preflopFishDecision(combo, context, onlineFishFacingOpenAction(combo, context));
   }
   if (type === "preflop-vs-threebet") {
     return preflopFishDecision(combo, context, onlineFishFacingThreeBetAction(combo, context));
@@ -801,7 +904,7 @@ export function fishDecisionForCombo(combo, context = {}) {
       openerPosition: "CO",
       ...context,
     };
-    return preflopFishDecision(combo, normalized, onlineFishFacingOpenAction(combo.classLabel, normalized));
+    return preflopFishDecision(combo, normalized, onlineFishFacingOpenAction(combo, normalized));
   }
 
   const board = context.board ?? [];
