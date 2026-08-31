@@ -99,6 +99,17 @@ function evaluateBest(cards) {
   return best;
 }
 
+/** Score the best hand that exists right now, without dealing future streets. */
+export function currentHandScore(holeCards, board) {
+  if (!Array.isArray(holeCards) || holeCards.length !== 2) {
+    throw new Error("Current hand scoring needs exactly two hole cards.");
+  }
+  if (!Array.isArray(board) || board.length < 3 || board.length > 5) {
+    throw new Error("Current hand scoring needs a flop, turn, or river board.");
+  }
+  return evaluateBest([...holeCards, ...board]);
+}
+
 function scoreCategory(score) {
   return Math.floor(score / 15 ** 5);
 }
@@ -671,11 +682,21 @@ export function fishDecisionForCombo(combo, context = {}) {
   const river = board.length === 5;
   const street = board.length === 3 ? "flop" : board.length === 4 ? "turn" : "river";
 
-  // Practice pots check through to the in-position hero. This keeps the
-  // multiway tree focused on facing each hero sizing without inventing a
-  // separate multi-opponent donk/raise equilibrium.
   if (type === "postflop-multiway-first") {
-    return fishDecision("check", perception, "With several players still involved, the fish checks and waits to see who shows strength.");
+    // Multiway population logic: obvious stack-off value tends to fast-play,
+    // while medium showdown value and air check. A nutty combo draw may also
+    // stab because the recreational player sees many outs, not because it is
+    // balancing a range. Observing checks can therefore cap the belief range.
+    if (features.aggressionTier === "strong" && raisesObviousValue(features, 0.50)) {
+      return fishDecision("bet", perception, `The fish sees ${perception.madeHand} as obvious multiway value and bets before another card can kill the action.`);
+    }
+    if (!river && features.nutFlushDraw && features.straightDraw === "open-ended") {
+      return fishDecision("bet", perception, "The nut combo draw looks strong enough to bet into several players, even without a balanced semi-bluff plan.");
+    }
+    if (features.aggressionTier === "showdown") {
+      return fishDecision("check", perception, `The fish wants to show down ${perception.madeHand} and checks rather than turning it into a multiway bluff.`);
+    }
+    return fishDecision("check", perception, `With several players involved and no obvious stack-off hand, the fish checks ${perception.label}.`);
   }
 
   if (type === "postflop-first") {

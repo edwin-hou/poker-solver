@@ -8,6 +8,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   const trainerJs = await readFile(new URL("../dist/site/trainer.js", import.meta.url), "utf8");
   const trainerCss = await readFile(new URL("../dist/site/styles/trainer.css", import.meta.url), "utf8");
   const fishModel = await readFile(new URL("../dist/src/fish-model.js", import.meta.url), "utf8");
+  const heroExploit = await readFile(new URL("../dist/src/hero-exploit.js", import.meta.url), "utf8");
   const multiwayPractice = await readFile(new URL("../dist/src/multiway-practice.js", import.meta.url), "utf8");
 
   assert.match(solverIndex, /href="trainer\.html"/);
@@ -36,6 +37,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /Estimate heads-up history/);
   assert.match(trainer, /Heads-up only: it does not model extra players/);
   assert.match(trainer, /not a claimed exact multiway solve/);
+  assert.match(trainer, /value requires worse calls and bluffs require better folds/);
   assert.match(trainer, /Opponent ranges never use solver charts/);
   assert.match(trainer, /TT\/99 still never 4-bet/);
   assert.match(trainer, /missed big aces peel only small postflop bets/);
@@ -68,9 +70,14 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /Explore this branch/);
   assert.match(trainerJs, /View saved branch/);
   assert.match(trainerJs, /choiceReasons/);
+  assert.match(trainerJs, /recommendHeroPostflopPlan/);
+  assert.doesNotMatch(trainerJs, /Thin value \/ cheap pressure/);
   assert.match(trainerJs, /What is wrong with this choice/);
   assert.match(trainerJs, /stack: 150/);
   assert.doesNotMatch(trainerJs, /reweighted by how often|posterior range/i);
+
+  assert.match(heroExploit, /Betting purpose \+ exact response ranges/);
+  assert.match(heroExploit, /Value requires worse calls; a bluff requires better folds/);
 
   assert.match(trainerCss, /--range-fold/);
   assert.match(trainerCss, /--range-call/);

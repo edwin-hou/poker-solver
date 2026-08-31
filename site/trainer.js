@@ -16,8 +16,8 @@ import {
   addTrainerTreeNode,
   observeFishAction,
   partitionFishRange,
-  postflopHandFeatures,
   preflopLookupStrategyForClass,
+  recommendHeroPostflopPlan,
   sampleFishAction,
   summarizeFishRange,
   trainerTreeChild,
@@ -324,12 +324,7 @@ function startNewHand() {
   const heroCards = randomTrainerHeroCards(scenarioKind);
   const scenario = createSixHandedPracticeScenario({ heroCards, scenarioKind });
   const hiddenCards = scenario.opponents.flatMap((opponent) => opponent.combo.cards);
-  const runoutDeck = createDeck([...heroCards, ...hiddenCards]);
-  const runout = [];
-  while (runout.length < 5) {
-    const chosen = Math.floor(Math.random() * runoutDeck.length);
-    runout.push(runoutDeck.splice(chosen, 1)[0]);
-  }
+  const runout = dealCheckThroughRunout(heroCards, scenario.opponents, hiddenCards);
   state = {
     heroCards,
     opponents: scenario.opponents,
@@ -571,60 +566,49 @@ function postflopEquity() {
 
 function buildAfterCheckDecision() {
   const equity = postflopEquity();
-  const heroFeatures = postflopHandFeatures({ cards: state.heroCards }, state.board);
-  let recommended = "check";
-  let acceptable = [];
-  if (equity >= 0.72) {
-    recommended = "bet75";
-    acceptable = ["bet33"];
-  } else if (equity >= 0.55) {
-    recommended = "bet33";
-    acceptable = ["check"];
-  } else if (heroFeatures.drawStrength >= 0.14 && equity < 0.48) {
-    recommended = "bet33";
-    acceptable = ["check"];
-  }
-  const percentEquity = Math.round(equity * 100);
-  const reason = recommended === "bet75"
-    ? `You have about ${percentEquity}% showdown equity versus the surviving multiway ranges. Caller-heavy opponents reward a bigger value bet instead of slow-playing.`
-    : recommended === "bet33"
-      ? `You have about ${percentEquity}% equity versus the surviving range. A small bet extracts thin value or applies cheap pressure without bloating the pot unnecessarily.`
-      : `You have about ${percentEquity}% equity versus the surviving range. This is a good place to protect showdown value and avoid forcing money into a range that is sticky when it continues.`;
+  const plan = recommendHeroPostflopPlan({
+    heroCards: state.heroCards,
+    board: state.board,
+    opponentRanges: activeOpponents().map((opponent) => opponent.range),
+    showdownEquity: equity,
+  });
   return {
     type: "postflop-after-checks",
     title: `${activeOpponents().length} opponents check the ${state.street}. What do you do?`,
     copy: "Choose your multiway exploit before inspecting any opponent's surviving range.",
-    recommended,
-    acceptable,
-    reason,
+    recommended: plan.recommended,
+    acceptable: plan.acceptable,
+    reason: plan.reason,
     equity,
-    choiceReasons: {
-      check: recommended === "check"
-        ? `Correct. With about ${percentEquity}% equity, checking realizes your share without value-owning yourself into several call-heavy ranges.`
-        : acceptable.includes("check")
-          ? `Defensible for pot control, but it misses thin value from pairs and draws that this profile calls too often.`
-          : `This is too passive with about ${percentEquity}% equity. Sticky opponents supply enough worse calls that checking leaves substantial value behind.`,
-      bet33: recommended === "bet33"
-        ? `Correct. One-third pot extracts thin value or buys cheap folds while keeping the cost controlled when several fish ranges can continue.`
-        : acceptable.includes("bet33")
-          ? `Reasonable, but your equity is strong enough to charge the modeled pairs and draws more heavily.`
-          : `This bet lacks a clear job. With about ${percentEquity}% equity, the fish folds much of the air you beat and continues with a range that has you in worse shape.`,
-      bet75: recommended === "bet75"
-        ? `Correct. Your roughly ${percentEquity}% equity is strong enough to target the fish's inelastic pair and draw calls for a larger amount.`
-        : recommended === "bet33"
-          ? `This is too large for a thin-value or pressure hand. It folds out more worse hands and gets continued against by a stronger range.`
-          : `This overinvests into several sticky ranges without enough equity. Large bets work best here as value, not as automatic pressure.`,
-    },
-    basis: {
-      title: "Exact range equity + exploit rule",
-      copy: `Equity is sampled against ${activeOpponents().length} independent exact binary opponent ranges. Bet/check thresholds are transparent multiway loose-passive exploit heuristics, not a solved six-player equilibrium.`,
-    },
+    purpose: plan.purpose,
+    diagnostics: plan.diagnostics,
+    choiceReasons: plan.choiceReasons,
+    basis: plan.basis,
     options: [
-      { id: "check", label: "Check back", detail: "Realize equity and keep the pot controlled" },
-      { id: "bet33", label: "Bet ⅓ pot", detail: "Thin value / cheap pressure" },
-      { id: "bet75", label: "Bet ¾ pot", detail: "Charge sticky continues" },
+      { id: "check", label: "Check back", detail: plan.optionDetails.check },
+      { id: "bet33", label: "Bet ⅓ pot", detail: plan.optionDetails.bet33 },
+      { id: "bet75", label: "Bet ¾ pot", detail: plan.optionDetails.bet75 },
     ],
   };
+}
+
+function dealCheckThroughRunout(heroCards, opponents, hiddenCards) {
+  const liveOpponents = opponents.filter((opponent) => !opponent.folded);
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    const deck = createDeck([...heroCards, ...hiddenCards]);
+    const runout = [];
+    while (runout.length < 5) {
+      const chosen = Math.floor(Math.random() * deck.length);
+      runout.push(deck.splice(chosen, 1)[0]);
+    }
+    const everyStreetChecks = [3, 4, 5].every((count) => {
+      const board = runout.slice(0, count);
+      const context = { type: "postflop-multiway-first", board };
+      return liveOpponents.every((opponent) => sampleFishAction(opponent.combo, context) === "check");
+    });
+    if (everyStreetChecks) return runout;
+  }
+  throw new Error("Could not deal a consistent check-through practice runout.");
 }
 
 function buildVsRaiseDecision(amountToCall, raiserId) {
