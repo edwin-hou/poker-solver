@@ -76,6 +76,10 @@ Fish checks`,
     ["call", "call", "call", "check"],
   );
   assert.deepEqual(
+    result.streetSnapshots.map((snapshot) => snapshot.lastFishContext?.type),
+    ["preflop-vs-open", "postflop-vs-bet", "postflop-vs-bet", "postflop-first"],
+  );
+  assert.deepEqual(
     result.streetSnapshots.map((snapshot) => snapshot.eventCount),
     [1, 4, 7, 9],
   );
@@ -141,4 +145,9 @@ Fish calls $8`,
 
   assert.equal(result.warnings.length, 0);
   assert.equal(result.range.filter((combo) => combo.classLabel === "77").length, 6);
+  const flopSnapshot = result.streetSnapshots.find((snapshot) => snapshot.street === "flop");
+  assert.equal(flopSnapshot.lastFishAction, "call");
+  assert.equal(flopSnapshot.lastFishContext.type, "postflop-vs-bet");
+  assert.ok(flopSnapshot.range.every((combo) =>
+    fishActionForCombo(combo, flopSnapshot.lastFishContext) === "call"));
 });

@@ -5,6 +5,8 @@ import {
   createFishRange,
   filterFishRange,
   fishActionForCombo,
+  fishDecisionForCombo,
+  fishPerceptionForCombo,
   fishRangeBucket,
   observeFishAction,
   parseCard,
@@ -14,6 +16,11 @@ import {
 
 function firstClass(range, label) {
   return range.find((entry) => entry.classLabel === label);
+}
+
+function exactCombo(range, text) {
+  const cards = new Set(parseCards(text, { exact: 2 }));
+  return range.find((entry) => entry.cards.every((card) => cards.has(card)));
 }
 
 test("fish prior is an exact blocker-aware set without probability weights", () => {
@@ -249,6 +256,68 @@ test("missed AK and AQ peel only unusually small postflop bets", () => {
     fishActionForCombo(aceKing, { type: "postflop-vs-bet", board: turn, betFraction: 0.33 }),
     "fold",
   );
+});
+
+test("the fish perspective evaluates exact suits instead of assigning one action to a whole class", () => {
+  const flop = parseCards("Qs 7s 2s", { exact: 3 });
+  const range = createFishRange({ board: flop });
+  const nutDrawAceKing = exactCombo(range, "As Kh");
+  const noSpadeAceKing = exactCombo(range, "Ac Kh");
+  const context = { type: "postflop-vs-bet", board: flop, betFraction: 0.75 };
+  assert.ok(nutDrawAceKing && noSpadeAceKing);
+
+  const drawDecision = fishDecisionForCombo(nutDrawAceKing, context);
+  const overcardDecision = fishDecisionForCombo(noSpadeAceKing, context);
+  assert.equal(drawDecision.action, "call");
+  assert.match(drawDecision.perception, /nut flush draw/);
+  assert.equal(overcardDecision.action, "fold");
+  assert.match(overcardDecision.perception, /missed AK\/AQ/);
+  assert.equal(fishActionForCombo(nutDrawAceKing, context), drawDecision.action);
+  assert.ok(drawDecision.reason.length > 20);
+});
+
+test("board-only draw texture is scary but is not mistaken for the fish's own draw", () => {
+  const turn = parseCards("Qs 7s 2s 3s", { exact: 4 });
+  const range = createFishRange({ board: turn });
+  const noSpade = exactCombo(range, "Jh Td");
+  assert.ok(noSpade);
+
+  const perception = fishPerceptionForCombo(noSpade, turn);
+  assert.equal(perception.features.flushDraw, false);
+  assert.match(perception.danger, /four-flush board/);
+  assert.equal(
+    fishActionForCombo(noSpade, { type: "postflop-vs-bet", board: turn, betFraction: 0.20 }),
+    "fold",
+  );
+});
+
+test("the fish distinguishes an affordable gutshot from an overpriced chase", () => {
+  const flop = parseCards("9c 8d 2s", { exact: 3 });
+  const range = createFishRange({ board: flop });
+  const gutshot = exactCombo(range, "Jh 7h");
+  assert.ok(gutshot);
+  assert.match(fishPerceptionForCombo(gutshot, flop).draw, /gutshot/);
+  assert.equal(
+    fishActionForCombo(gutshot, { type: "postflop-vs-bet", board: flop, betFraction: 0.33 }),
+    "call",
+  );
+  assert.equal(
+    fishActionForCombo(gutshot, { type: "postflop-vs-bet", board: flop, betFraction: 0.50 }),
+    "fold",
+  );
+});
+
+test("obvious kicker quality changes how sticky the fish is with top pair", () => {
+  const flop = parseCards("Ac 7d 2s", { exact: 3 });
+  const range = createFishRange({ board: flop });
+  const strongKicker = exactCombo(range, "Ah Qh");
+  const weakKicker = exactCombo(range, "Ad 5d");
+  const context = { type: "postflop-vs-bet", board: flop, betFraction: 0.95 };
+  assert.ok(strongKicker && weakKicker);
+  assert.match(fishPerceptionForCombo(strongKicker, flop).label, /strong kicker/);
+  assert.match(fishPerceptionForCombo(weakKicker, flop).label, /weak kicker/);
+  assert.equal(fishActionForCombo(strongKicker, context), "call");
+  assert.equal(fishActionForCombo(weakKicker, context), "fold");
 });
 
 test("paired-board pocket pairs remain showdown value and never become two-pair bluffs", () => {

@@ -18,7 +18,7 @@ import {
 import { expandRange } from "./range.js";
 
 export const FISH_PROFILE = Object.freeze({
-  id: "low-stakes-loose-passive-fish-v5",
+  id: "low-stakes-loose-passive-fish-v6",
   label: "Basic low-stakes loose-passive fish",
   description:
     "Understands position, sizing, dead money, and its own prior action, but has no balanced/GTO range construction: enters too wide, calls too much, gets mildly attached to recognizable premiums, defaults to check/call, and keeps reraises value-heavy.",
@@ -31,6 +31,7 @@ export const FISH_PROFILE = Object.freeze({
     "Peels one extra small postflop bet with missed AK/AQ, but releases them to ordinary pressure",
     "Never turns TT or 99 into a 4-bet",
     "Checks medium showdown value instead of converting it into a balance bluff",
+    "Judges every exact combo by the obvious hand, draw, kicker, board danger, and price it can see",
     "Calls pairs less often as the bet and street get larger",
     "Chases obvious flush and straight draws too often",
     "Raises strong made hands far more often than bluffs",
@@ -40,6 +41,17 @@ export const FISH_PROFILE = Object.freeze({
 
 const RANKS = "23456789TJQKA";
 const CATEGORY_STRENGTH = Object.freeze([0.12, 0.38, 0.72, 0.80, 0.86, 0.90, 0.96, 0.99, 1]);
+const CATEGORY_LABELS = Object.freeze([
+  "high card",
+  "one pair",
+  "two pair",
+  "three of a kind",
+  "straight",
+  "flush",
+  "full house",
+  "four of a kind",
+  "straight flush",
+]);
 const STICKY_PREFLOP_PREMIUMS = new Set(["AKs", "AKo", "AQs"]);
 const RECOGNIZABLE_BIG_ACES = new Set(["AKs", "AKo", "AQs", "AQo"]);
 
@@ -91,21 +103,42 @@ function scoreCategory(score) {
   return Math.floor(score / 15 ** 5);
 }
 
-function straightDrawType(cards) {
+function rankVariants(rank) {
+  return rank === 14 ? [14, 1] : [rank];
+}
+
+function straightDrawType(holeCards, board) {
+  const cards = [...holeCards, ...board];
   const rawRanks = [...new Set(cards.map(rankValue))];
   const ranks = new Set(rawRanks);
   if (ranks.has(14)) ranks.add(1);
+  const boardRanks = new Set(board.flatMap((card) => rankVariants(rankValue(card))));
+  const holeRanks = new Set(holeCards.flatMap((card) => rankVariants(rankValue(card))));
   let oneMissingWindows = 0;
   for (let start = 1; start <= 10; start += 1) {
     let missing = 0;
+    let holeContributes = false;
     for (let rank = start; rank < start + 5; rank += 1) {
       if (!ranks.has(rank)) missing += 1;
+      if (holeRanks.has(rank) && !boardRanks.has(rank)) holeContributes = true;
     }
-    if (missing === 1) oneMissingWindows += 1;
+    if (missing === 1 && holeContributes) oneMissingWindows += 1;
   }
   if (oneMissingWindows >= 2) return "open-ended";
   if (oneMissingWindows === 1) return "gutshot";
   return null;
+}
+
+function boardHasFourToStraight(board) {
+  const ranks = new Set(board.flatMap((card) => rankVariants(rankValue(card))));
+  for (let start = 1; start <= 10; start += 1) {
+    let present = 0;
+    for (let rank = start; rank < start + 5; rank += 1) {
+      if (ranks.has(rank)) present += 1;
+    }
+    if (present >= 4) return true;
+  }
+  return false;
 }
 
 function pairTier(combo, board, category) {
@@ -185,9 +218,29 @@ export function postflopHandFeatures(combo, board) {
     && holeRanks.every((rank) => !boardCounts.has(rank));
 
   const suitCounts = new Map();
+  const boardSuitCounts = new Map();
+  const holeSuitCounts = new Map();
   for (const card of cards) suitCounts.set(suitIndex(card), (suitCounts.get(suitIndex(card)) ?? 0) + 1);
-  const flushDraw = board.length < 5 && category < 5 && Math.max(...suitCounts.values()) === 4;
-  const straightDraw = board.length < 5 && category < 4 ? straightDrawType(cards) : null;
+  for (const card of board) boardSuitCounts.set(suitIndex(card), (boardSuitCounts.get(suitIndex(card)) ?? 0) + 1);
+  for (const card of combo.cards) holeSuitCounts.set(suitIndex(card), (holeSuitCounts.get(suitIndex(card)) ?? 0) + 1);
+  const flushDrawSuit = board.length < 5 && category < 5
+    ? [...suitCounts].find(([suit, count]) => count === 4 && (holeSuitCounts.get(suit) ?? 0) > 0)?.[0]
+    : undefined;
+  const flushDraw = flushDrawSuit !== undefined;
+  const nutFlushDraw = flushDraw
+    && combo.cards.some((card) => suitIndex(card) === flushDrawSuit && rankValue(card) === 14);
+  const straightDraw = board.length < 5 && category < 4 ? straightDrawType(combo.cards, board) : null;
+  const maxBoardSuitCount = board.length ? Math.max(...boardSuitCounts.values()) : 0;
+  const fourFlushBoard = maxBoardSuitCount >= 4;
+  const threeFlushBoard = maxBoardSuitCount >= 3;
+  const fourStraightBoard = boardHasFourToStraight(board);
+
+  let kickerTier = null;
+  if (["top-pair", "middle-pair", "bottom-pair"].includes(pair)) {
+    const matchedRanks = new Set(board.map(rankValue));
+    const kicker = holeRanks.find((rank) => !matchedRanks.has(rank)) ?? Math.min(...holeRanks);
+    kickerTier = kicker >= 12 ? "strong" : kicker >= 9 ? "medium" : "weak";
+  }
 
   let madeStrength = CATEGORY_STRENGTH[category] ?? 0.12;
   if (aggressionTier === "showdown") {
@@ -213,13 +266,152 @@ export function postflopHandFeatures(combo, board) {
     boardMadeShowdown,
     unpairedPremium,
     flushDraw,
+    nutFlushDraw,
     straightDraw,
+    kickerTier,
+    boardPaired,
+    threeFlushBoard,
+    fourFlushBoard,
+    fourStraightBoard,
     aceHigh: highCard.aceHigh,
     twoOvercards: highCard.twoOvercards,
     madeStrength: clamp(madeStrength),
     drawStrength: clamp(drawStrength, 0, 0.36),
     continueStrength: clamp(madeStrength + drawStrength * 0.85),
   };
+}
+
+function pairTierLabel(pairTier) {
+  return ({
+    overpair: "overpair",
+    "top-pair": "top pair",
+    "middle-pair": "middle pair",
+    "bottom-pair": "bottom pair",
+    underpair: "small pocket pair",
+    "board-pair": "the board's pair",
+  })[pairTier] ?? "one pair";
+}
+
+/**
+ * Describe the hand the way this recreational archetype is likely to see it.
+ * This deliberately uses obvious labels rather than range-vs-range equity.
+ */
+export function fishPerceptionForCombo(combo, board = []) {
+  if (!board.length) {
+    const { pair, suited, gap } = classShape(combo.classLabel);
+    const attachment = STICKY_PREFLOP_PREMIUMS.has(combo.classLabel)
+      ? "recognizable premium"
+      : pair
+        ? "pocket pair"
+        : suited && gap <= 1
+          ? "playable suited connector"
+          : suited
+            ? "suited hand"
+            : "two cards";
+    return {
+      label: `${combo.classLabel} · ${attachment}`,
+      madeHand: attachment,
+      draw: null,
+      danger: "preflop action and price",
+    };
+  }
+
+  const features = postflopHandFeatures(combo, board);
+  let madeHand = CATEGORY_LABELS[features.category] ?? "made hand";
+  if (features.aggressionTier === "showdown") {
+    madeHand = pairTierLabel(features.pairTier);
+    if (["top-pair", "middle-pair", "bottom-pair"].includes(features.pairTier) && features.kickerTier) {
+      madeHand += ` with a ${features.kickerTier} kicker`;
+    }
+  } else if (features.unpairedPremium) {
+    madeHand = "missed AK/AQ overcards";
+  } else if (features.category === 0 && features.aceHigh) {
+    madeHand = "ace high";
+  }
+
+  const draws = [];
+  if (features.nutFlushDraw) draws.push("nut flush draw");
+  else if (features.flushDraw) draws.push("flush draw");
+  if (features.straightDraw === "open-ended") draws.push("open-ended straight draw");
+  else if (features.straightDraw === "gutshot") draws.push("gutshot");
+
+  const dangers = [];
+  if (features.fourFlushBoard) dangers.push("four-flush board");
+  else if (features.threeFlushBoard) dangers.push("three-flush board");
+  if (features.fourStraightBoard) dangers.push("four-to-a-straight board");
+  if (features.boardPaired) dangers.push("paired board");
+
+  return {
+    label: [madeHand, draws.length ? draws.join(" + ") : null].filter(Boolean).join(" + "),
+    madeHand,
+    draw: draws.length ? draws.join(" + ") : null,
+    danger: dangers.length ? dangers.join(" and ") : "ordinary board texture",
+    features,
+  };
+}
+
+function fishDecision(action, perception, reason) {
+  return Object.freeze({ action, perception: perception.label, reason });
+}
+
+function preflopFishDecision(combo, context, action) {
+  const perception = fishPerceptionForCombo(combo);
+  const openBb = Number(context.openBb ?? context.threeBetBb ?? context.fourBetBb ?? 0);
+  if (action === "raise") {
+    return fishDecision(action, perception, "This looks like obvious value or a straightforward isolation spot, so the fish raises without constructing a balanced range.");
+  }
+  if (action === "call" && STICKY_PREFLOP_PREMIUMS.has(combo.classLabel)) {
+    return fishDecision(action, perception, "The AK/AQ label is too recognizable to release preflop; the fish calls rather than finding a solver-style bluff reraise.");
+  }
+  if (action === "call") {
+    const price = openBb >= 6.5 ? "expensive but still playable" : openBb >= 4.5 ? "a little expensive" : "affordable";
+    return fishDecision(action, perception, `This hand looks ${price} and the fish would rather see cards than tighten its range.`);
+  }
+  if (action === "limp") {
+    return fishDecision(action, perception, "The hand looks playable, but not strong enough to build a large pot, so the fish limps.");
+  }
+  if (action === "check") {
+    return fishDecision(action, perception, "The fish takes the free option with a hand it would not raise.");
+  }
+  return fishDecision(action, perception, "Even through a loose recreational lens, this hand looks too weak for the action and price.");
+}
+
+function pairCallCap(features, street) {
+  const caps = {
+    overpair: { flop: 1.1, turn: 0.95, river: 0.75 },
+    "top-pair": { flop: 1, turn: 0.85, river: 0.66 },
+    "middle-pair": { flop: 0.72, turn: 0.56, river: 0.42 },
+    "bottom-pair": { flop: 0.60, turn: 0.44, river: 0.32 },
+    underpair: { flop: 0.42, turn: 0.30, river: 0.22 },
+    "board-pair": { flop: 0.24, turn: 0.18, river: 0.12 },
+  };
+  let cap = caps[features.pairTier]?.[street] ?? 0;
+  if (features.kickerTier === "strong") cap += 0.10;
+  else if (features.kickerTier === "medium") cap += 0.04;
+  else if (features.kickerTier === "weak") cap -= 0.08;
+  if (features.fourFlushBoard || features.fourStraightBoard) cap -= 0.14;
+  return Math.max(0, cap);
+}
+
+function drawCallCap(features, street) {
+  if (street === "river") return 0;
+  const flop = street === "flop";
+  if (features.flushDraw && features.straightDraw === "open-ended") return flop ? 1.20 : 0.95;
+  if (features.nutFlushDraw) return flop ? 1.05 : 0.85;
+  if (features.flushDraw) return flop ? 0.92 : 0.72;
+  if (features.straightDraw === "open-ended") return flop ? 0.82 : 0.62;
+  if (features.straightDraw === "gutshot") return flop ? 0.40 : 0.27;
+  return 0;
+}
+
+function raisesObviousValue(features, betFraction) {
+  if (features.category >= 6) return true;
+  if (features.category === 5) return !features.boardPaired || betFraction <= 0.75;
+  if (features.category === 4) return !features.threeFlushBoard || betFraction <= 0.50;
+  if ([2, 3].includes(features.category)) {
+    return !features.fourFlushBoard && !features.fourStraightBoard;
+  }
+  return false;
 }
 
 function isPremiumThreeBet(classLabel) {
@@ -442,43 +634,66 @@ function onlineFishFacingFourBetAction(classLabel, context) {
 }
 
 /**
- * Deterministic novice action rule. There is deliberately no mixed strategy:
- * for a given exact combo and public state this fish archetype takes one action.
+ * Play one exact combo from the fish's point of view. The result contains the
+ * action plus the simple, visible thought process that produced it.
  */
-export function fishActionForCombo(combo, context = {}) {
+export function fishDecisionForCombo(combo, context = {}) {
   const type = context.type;
 
-  if (type === "preflop-unopened") return actionUnopened(combo.classLabel);
-  if (type === "sixmax-unopened" || type === "sixmax-after-limp") {
-    return onlineFishUnopenedAction(combo.classLabel, context);
+  if (type === "preflop-unopened") {
+    return preflopFishDecision(combo, context, actionUnopened(combo.classLabel));
   }
-  if (type === "sixmax-vs-open") return onlineFishFacingOpenAction(combo.classLabel, context);
-  if (type === "preflop-vs-threebet") return onlineFishFacingThreeBetAction(combo.classLabel, context);
-  if (type === "preflop-vs-fourbet") return onlineFishFacingFourBetAction(combo.classLabel, context);
+  if (type === "sixmax-unopened" || type === "sixmax-after-limp") {
+    return preflopFishDecision(combo, context, onlineFishUnopenedAction(combo.classLabel, context));
+  }
+  if (type === "sixmax-vs-open") {
+    return preflopFishDecision(combo, context, onlineFishFacingOpenAction(combo.classLabel, context));
+  }
+  if (type === "preflop-vs-threebet") {
+    return preflopFishDecision(combo, context, onlineFishFacingThreeBetAction(combo.classLabel, context));
+  }
+  if (type === "preflop-vs-fourbet") {
+    return preflopFishDecision(combo, context, onlineFishFacingFourBetAction(combo.classLabel, context));
+  }
 
   if (type === "preflop-vs-open") {
-    return onlineFishFacingOpenAction(combo.classLabel, {
+    const normalized = {
       position: "BB",
       openerPosition: "CO",
       ...context,
-    });
+    };
+    return preflopFishDecision(combo, normalized, onlineFishFacingOpenAction(combo.classLabel, normalized));
   }
 
   const board = context.board ?? [];
   const features = postflopHandFeatures(combo, board);
+  const perception = fishPerceptionForCombo(combo, board);
   const river = board.length === 5;
+  const street = board.length === 3 ? "flop" : board.length === 4 ? "turn" : "river";
 
   // Practice pots check through to the in-position hero. This keeps the
   // multiway tree focused on facing each hero sizing without inventing a
   // separate multi-opponent donk/raise equilibrium.
-  if (type === "postflop-multiway-first") return "check";
+  if (type === "postflop-multiway-first") {
+    return fishDecision("check", perception, "With several players still involved, the fish checks and waits to see who shows strength.");
+  }
 
   if (type === "postflop-first") {
     // The passive default is check. Obvious monsters and huge combo draws are
     // the main hands this archetype decides it needs to "protect" by betting.
-    if (features.aggressionTier === "strong") return "bet";
-    if (!river && features.flushDraw && features.straightDraw === "open-ended") return "bet";
-    return "check";
+    if (features.aggressionTier === "strong" && raisesObviousValue(features, 0.50)) {
+      return fishDecision("bet", perception, `The fish sees ${perception.madeHand} as obvious value and bets to get paid or protect it.`);
+    }
+    if (!river && features.flushDraw && features.straightDraw === "open-ended") {
+      return fishDecision("bet", perception, "The combo draw looks almost like a made hand, so the fish bets it for protection rather than as a balanced semi-bluff.");
+    }
+    if (features.aggressionTier === "showdown") {
+      return fishDecision("check", perception, `The fish wants to show down ${perception.madeHand}; it does not convert that hand into a bluff.`);
+    }
+    if (features.aggressionTier === "strong") {
+      return fishDecision("check", perception, `The fish likes ${perception.madeHand}, but ${perception.danger} makes it cautious enough to check.`);
+    }
+    return fishDecision("check", perception, "Nothing looks strong enough to lead, so the passive default is to check.");
   }
 
   if (type === "postflop-vs-bet") {
@@ -486,46 +701,75 @@ export function fishActionForCombo(combo, context = {}) {
 
     // Raises are simple and face-up: strong made hands, with essentially no
     // river bluff-raising. This is the most important exploitable tendency.
-    if (features.aggressionTier === "strong") return "raise";
+    if (features.aggressionTier === "strong") {
+      if (raisesObviousValue(features, betFraction)) {
+        return fishDecision("raise", perception, `The fish sees ${perception.madeHand} as obvious value and raises without looking for a balanced bluff.`);
+      }
+      return fishDecision("call", perception, `The fish likes ${perception.madeHand}, but ${perception.danger} makes a call feel safer than a raise.`);
+    }
 
     // Calling-station behavior is still size- and street-sensitive. Medium
     // showdown value calls smaller bets but is never promoted into a bluff
     // merely because a paired board makes the evaluator say "two pair."
-    const street = board.length === 3 ? "flop" : board.length === 4 ? "turn" : "river";
-    const pairCallCaps = {
-      overpair: { flop: 1.1, turn: 0.95, river: 0.75 },
-      "top-pair": { flop: 1, turn: 0.85, river: 0.66 },
-      "middle-pair": { flop: 0.72, turn: 0.56, river: 0.42 },
-      "bottom-pair": { flop: 0.60, turn: 0.44, river: 0.32 },
-      underpair: { flop: 0.42, turn: 0.30, river: 0.22 },
-      "board-pair": { flop: 0.24, turn: 0.18, river: 0.12 },
-    };
-    const pairCallCap = pairCallCaps[features.pairTier]?.[street] ?? 0;
-    if (features.aggressionTier === "showdown" && betFraction <= pairCallCap) return "call";
-    if (!river && (features.flushDraw || features.straightDraw)) {
-      return betFraction <= 1 ? "call" : "fold";
+    const madeCap = pairCallCap(features, street);
+    const drawCap = drawCallCap(features, street);
+    if (features.aggressionTier === "showdown" && betFraction <= Math.max(madeCap, drawCap)) {
+      return fishDecision("call", perception, `The fish sees ${perception.label} and the ${Math.round(betFraction * 100)}% pot price still feels affordable.`);
+    }
+    if (!river && drawCap > 0) {
+      if (betFraction <= drawCap) {
+        return fishDecision("call", perception, `The fish chases ${perception.draw} because the ${Math.round(betFraction * 100)}% pot price feels affordable.`);
+      }
+      return fishDecision("fold", perception, `The fish notices ${perception.draw}, but even a sticky chaser finds the ${Math.round(betFraction * 100)}% pot price too large.`);
     }
     if (features.unpairedPremium) {
-      if (board.length === 3 && betFraction <= 0.42) return "call";
-      if (board.length === 4 && betFraction <= 0.24 && features.twoOvercards) return "call";
+      if (board.length === 3 && betFraction <= 0.42) {
+        return fishDecision("call", perception, "The recognizable AK/AQ label earns one extra small flop peel, even though it missed.");
+      }
+      if (board.length === 4 && betFraction <= 0.24 && features.twoOvercards) {
+        return fishDecision("call", perception, "Two big overcards earn one last tiny turn peel; ordinary pressure would end the attachment.");
+      }
     }
-    if (board.length === 3 && betFraction <= 0.24 && (features.aceHigh || features.twoOvercards)) return "call";
-    return "fold";
+    if (board.length === 3 && betFraction <= 0.24 && (features.aceHigh || features.twoOvercards)) {
+      return fishDecision("call", perception, "The flop bet is tiny enough for the fish to peel obvious overcards once.");
+    }
+    if (features.aggressionTier === "showdown") {
+      return fishDecision("fold", perception, `The fish would like to show down ${perception.madeHand}, but the price is beyond what that visible hand can justify.`);
+    }
+    return fishDecision("fold", perception, "The hand has no obvious pair or affordable draw, so the fish lets it go.");
   }
 
   if (type === "postflop-vs-raise") {
+    const raiseFraction = clamp(Number(context.raiseFraction ?? 0.66), 0.15, 3);
     if (river) {
-      if (features.aggressionTier === "strong") return "call";
-      if (["overpair", "top-pair"].includes(features.pairTier)) return "call";
-      return "fold";
+      if (features.aggressionTier === "strong") {
+        return fishDecision("call", perception, `The fish cannot release ${perception.madeHand}, but does not invent a thin river reraise.`);
+      }
+      const cap = pairCallCap(features, street) * 0.55;
+      if (["overpair", "top-pair"].includes(features.pairTier) && raiseFraction <= cap) {
+        return fishDecision("call", perception, `The raise is small enough for the fish to pay off with ${perception.madeHand}.`);
+      }
+      return fishDecision("fold", perception, "A river raise looks heavily value-weighted, so the fish finally releases its bluff-catcher.");
     }
-    if (features.aggressionTier === "strong") return "call";
-    if (["overpair", "top-pair", "middle-pair"].includes(features.pairTier)) return "call";
-    if (features.flushDraw || features.straightDraw === "open-ended") return "call";
-    return "fold";
+    if (features.aggressionTier === "strong") {
+      return fishDecision("call", perception, `The fish is not folding ${perception.madeHand}, but passively calls instead of building a balanced reraising range.`);
+    }
+    const continueCap = Math.max(pairCallCap(features, street) * 0.75, drawCallCap(features, street) * 0.75);
+    if (raiseFraction <= continueCap && (features.aggressionTier === "showdown" || drawCallCap(features, street) > 0)) {
+      return fishDecision("call", perception, `The fish remains attached to ${perception.label} because the raise still looks affordable.`);
+    }
+    return fishDecision("fold", perception, "The raise makes the visible pair or draw feel too expensive, so the fish gives it up.");
   }
 
   throw new Error(`Unknown fish action context: ${type}`);
+}
+
+/**
+ * Deterministic novice action rule. There is deliberately no mixed strategy:
+ * for a given exact combo and public state this fish archetype takes one action.
+ */
+export function fishActionForCombo(combo, context = {}) {
+  return fishDecisionForCombo(combo, context).action;
 }
 
 /** All unblocked exact combos are initially possible; there are no weights. */
