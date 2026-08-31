@@ -395,6 +395,8 @@ function buildPreflopDecision() {
 
 function pushHeroDecision(decision) {
   state.heroStatus = "Decision pending";
+  rangeVisible = false;
+  elements.rangePanel.hidden = true;
   snapshotMoment({
     kind: "decision",
     kicker: "Your decision",
@@ -1760,11 +1762,12 @@ function renderCards(moment) {
 function renderDecision(moment) {
   const path = activePath();
   const activeMoment = historyIndex === path.length - 1;
+  const answerRevealed = moment.kind !== "decision" || Boolean(moment.answer);
   elements.questionKicker.textContent = moment.kicker ?? (moment.kind === "decision" ? "Your decision" : "Hand complete");
   elements.questionTitle.textContent = moment.title;
   elements.questionCopy.textContent = moment.copy;
   elements.answerOptions.innerHTML = "";
-  if (moment.decision?.basis) {
+  if (answerRevealed && moment.decision?.basis) {
     elements.decisionBasis.hidden = false;
     elements.decisionBasisTitle.textContent = moment.decision.basis.title;
     elements.decisionBasisCopy.textContent = moment.decision.basis.copy;
@@ -1781,7 +1784,8 @@ function renderDecision(moment) {
       if (moment.answer && moment.decision.recommended === option.id) button.classList.add("recommended");
       const savedBranch = trainerTreeChild(tree, moment.id, option.id);
       button.setAttribute("aria-pressed", String(moment.answer === option.id));
-      button.innerHTML = `<span class="answer-label"><strong>${option.label}</strong><small>${option.detail}</small></span>${savedBranch ? '<span class="branch-saved">Saved branch</span>' : ""}`;
+      const revealedDetail = answerRevealed ? `<small>${option.detail}</small>` : "";
+      button.innerHTML = `<span class="answer-label"><strong>${option.label}</strong>${revealedDetail}</span>${savedBranch ? '<span class="branch-saved">Saved branch</span>' : ""}`;
       button.addEventListener("click", () => chooseAnswer(option.id));
       elements.answerOptions.append(button);
     }
@@ -1807,7 +1811,9 @@ function renderDecision(moment) {
     elements.feedbackPanel.hidden = true;
   }
 
-  if (!activeMoment && moment.kind === "decision") {
+  if (!answerRevealed) {
+    elements.decisionNote.textContent = "Choose an action first. Grading, strategy explanations, and opponent ranges unlock only after you commit to a decision.";
+  } else if (!activeMoment && moment.kind === "decision") {
     elements.decisionNote.textContent = "Reviewing an earlier fork. Every action remains selectable; exploring it creates or reopens a saved counterfactual branch without deleting the others.";
   } else if (moment.kind === "complete") {
     elements.decisionNote.textContent = "Use ← or the branch trail to revisit any earlier fork. Saved alternatives keep their own board, pot, action thread, and every opponent's exact range.";
@@ -1840,6 +1846,7 @@ function render() {
   const path = activePath();
   const moment = path[historyIndex];
   if (!moment) return;
+  const answerRevealed = moment.kind !== "decision" || Boolean(moment.answer);
   elements.streetPill.textContent = streetLabel(moment.street);
   elements.spotLabel.textContent = `${moment.spotLabel} · ${activeOpponents(moment).length} opponents live · $1/$2/$3 · 150bb`;
   elements.potLabel.textContent = formatMoney(moment.pot);
@@ -1857,7 +1864,9 @@ function render() {
   renderCards(moment);
   renderDecision(moment);
   renderBranchTrail(path);
-  if (rangeVisible) {
+  elements.revealRange.hidden = !answerRevealed;
+  if (!answerRevealed) rangeVisible = false;
+  if (rangeVisible && answerRevealed) {
     elements.rangePanel.hidden = false;
     renderRange(moment);
   } else {
@@ -2034,6 +2043,8 @@ elements.historyForward.addEventListener("click", () => {
 });
 
 elements.revealRange.addEventListener("click", () => {
+  const moment = currentMoment();
+  if (moment?.kind === "decision" && !moment.answer) return;
   rangeVisible = true;
   render();
   elements.rangePanel.scrollIntoView({ behavior: "smooth", block: "start" });
