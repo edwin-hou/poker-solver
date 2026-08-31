@@ -273,9 +273,20 @@ body {
   padding: 10px 7px;
   gap: 7px;
 }
-.opponent-seat.folded { opacity: .46; filter: saturate(.55); }
+.opponent-seat.folded > :not(.seat-range-button) { opacity: .46; filter: saturate(.55); }
 .opponent-seat .seat-label { font-size: 10px; }
 .opponent-seat .seat-action { font-size: 10px; }
+.seat-range-button {
+  padding: 4px 8px;
+  border: 1px solid rgba(102,227,196,.28);
+  border-radius: 999px;
+  color: #9fe8d4;
+  background: rgba(102,227,196,.055);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .03em;
+}
+.seat-range-button:hover { border-color: rgba(102,227,196,.62); background: rgba(102,227,196,.11); }
 .seat-hero { width: min(100%, 300px); }
 .compact-cards .card,
 .compact-cards .card-back {
@@ -341,7 +352,6 @@ body {
 .feedback-panel strong { font-size: 13px; }
 .feedback-panel p { margin: 4px 0 0; color: #b9c5d4; font-size: 12px; line-height: 1.55; }
 .study-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 18px; }
-.study-actions .button[hidden] { display: none; }
 .decision-note { margin: 10px 0 0; color: var(--muted-2); font-size: 10px; line-height: 1.5; }
 
 .range-panel { margin-top: 18px; padding: 18px; }
