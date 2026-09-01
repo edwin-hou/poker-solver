@@ -1,9 +1,6 @@
 import {
   HAND_CLASSES,
-  POSTFLOP_BET_SIZES,
-  POSTFLOP_RAISE_SIZES,
   analyzeFishHandHistory,
-  availablePostflopBetSizes,
   cardToHtml,
   cardToString,
   cloneFishRange,
@@ -15,21 +12,26 @@ import {
   estimateHeroMultiwayEquity,
   evaluate7,
   filterFishRange,
-  fractionForBetChoice,
   fishDecisionForCombo,
   addTrainerTreeNode,
   observeFishAction,
   partitionFishRange,
   preflopLookupStrategyForClass,
-  heroAllInTarget,
-  postflopBetAmount,
-  postflopRaiseTarget,
-  recommendHeroPostflopPlan,
   sampleFishAction,
   summarizeFishRange,
   trainerTreeChild,
   trainerTreePath,
 } from "../src/index.js";
+import { recommendHeroPostflopPlan } from "../src/hero-exploit.js?v=bet-amounts-overbet-v17";
+import {
+  POSTFLOP_BET_SIZES,
+  POSTFLOP_RAISE_SIZES,
+  availablePostflopBetSizes,
+  fractionForBetChoice,
+  heroAllInTarget,
+  postflopBetAmount,
+  postflopRaiseTarget,
+} from "../src/trainer-sizing.js?v=bet-amounts-overbet-v17";
 
 const STREET_ORDER = ["preflop", "flop", "turn", "river"];
 const STREET_BOARD_COUNT = { preflop: 0, flop: 3, turn: 4, river: 5 };
