@@ -6,7 +6,6 @@ import {
   cloneFishRange,
   comboClass,
   compareScores,
-  createSixHandedPracticeScenario,
   createDeck,
   createTrainerTree,
   estimateHeroMultiwayEquity,
@@ -23,6 +22,10 @@ import {
   trainerTreePath,
 } from "../src/index.js";
 import { recommendHeroPostflopPlan } from "../src/hero-exploit.js?v=bet-amounts-overbet-v17";
+import {
+  HERO_POSITIONS,
+  createSixHandedPracticeScenario,
+} from "../src/multiway-practice.js?v=hero-all-positions-v18";
 import {
   POSTFLOP_BET_SIZES,
   POSTFLOP_RAISE_SIZES,
@@ -55,6 +58,7 @@ const elements = {
   spotLabel: $("#spot-label"),
   potLabel: $("#pot-label"),
   heroStack: $("#hero-stack"),
+  heroPosition: $("#hero-position"),
   opponentSeats: $("#opponent-seats"),
   heroCards: $("#hero-cards"),
   boardCards: $("#board-cards"),
@@ -131,6 +135,7 @@ let rangeView = { momentId: null, opponentId: null, choiceId: null, fishAction: 
 let selectedRangeClass = null;
 let selectedHistoryRangeClass = null;
 let selectedHistoryStreet = null;
+let nextHeroPositionIndex = 0;
 
 function formatMoney(value) {
   return `$${Math.max(0, Math.round(value)).toLocaleString("en-US")}`;
@@ -158,30 +163,37 @@ function randomCardPair() {
   return [deck[0], deck[1]];
 }
 
-function randomTrainerHeroCards(scenarioKind) {
+function randomTrainerHeroCards(scenarioKind, heroPosition) {
   const seekContinue = Math.random() < 0.85;
   let cards = randomCardPair();
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const classLabel = comboClass(cards[0], cards[1]);
+    const villainPosition = scenarioKind === "threebet"
+      ? "CO"
+      : heroPosition === "BB"
+        ? "BTN"
+        : heroPosition === "BTN"
+          ? "HJ"
+          : "UTG";
     const lookup = scenarioKind === "threebet"
       ? preflopLookupStrategyForClass({
         preflopSpot: "vs-3bet",
-        heroPosition: "BTN",
-        villainPosition: "CO",
+        heroPosition,
+        villainPosition,
         stack: 150,
         openSize: 4,
       }, classLabel)
       : scenarioKind === "raised"
       ? preflopLookupStrategyForClass({
         preflopSpot: "vs-open",
-        heroPosition: "BTN",
-        villainPosition: "HJ",
+        heroPosition,
+        villainPosition,
         stack: 150,
         openSize: 4,
       }, classLabel)
       : preflopLookupStrategyForClass({
         preflopSpot: "rfi",
-        heroPosition: "BTN",
+        heroPosition,
         villainPosition: "BB",
         stack: 150,
         openSize: 10 / 3,
@@ -242,8 +254,41 @@ function preflopRoleFor(opponent, source = state) {
 }
 
 function opponentsInPostflopOrder(source = state) {
-  const order = ["sb", "bb", "utg", "hj", "co"];
-  return order.map((id) => opponentById(id, source)).filter((opponent) => opponent && !opponent.folded);
+  const order = ["sb", "bb", "utg", "hj", "co", "btn"];
+  const heroIndex = order.indexOf(source.heroId);
+  const rotated = [...order.slice(heroIndex + 1), ...order.slice(0, heroIndex)];
+  return rotated.map((id) => opponentById(id, source)).filter((opponent) => opponent && !opponent.folded);
+}
+
+function opponentsBeforeHeroPostflop(source = state) {
+  const order = ["sb", "bb", "utg", "hj", "co", "btn"];
+  const heroIndex = order.indexOf(source.heroId);
+  return order.slice(0, heroIndex)
+    .map((id) => opponentById(id, source))
+    .filter((opponent) => opponent && !opponent.folded);
+}
+
+function opponentsAfterHeroPostflop(source = state) {
+  const order = ["sb", "bb", "utg", "hj", "co", "btn"];
+  const heroIndex = order.indexOf(source.heroId);
+  return order.slice(heroIndex + 1)
+    .map((id) => opponentById(id, source))
+    .filter((opponent) => opponent && !opponent.folded);
+}
+
+function opponentsAfterHeroPreflop(source = state) {
+  const order = ["utg", "hj", "co", "btn", "sb", "bb"];
+  const heroIndex = order.indexOf(source.heroId);
+  return order.slice(heroIndex + 1)
+    .map((id) => opponentById(id, source))
+    .filter((opponent) => opponent && !opponent.folded);
+}
+
+function opponentsInPreflopResponseOrder(source = state) {
+  const order = ["utg", "hj", "co", "btn", "sb", "bb"];
+  const heroIndex = order.indexOf(source.heroId);
+  const rotated = [...order.slice(heroIndex + 1), ...order.slice(0, heroIndex)];
+  return rotated.map((id) => opponentById(id, source)).filter((opponent) => opponent && !opponent.folded);
 }
 
 function activePath() {
@@ -267,6 +312,8 @@ function snapshotMoment({ kind = "decision", title, copy, decision = null, kicke
     board: [...state.board],
     pot: state.pot,
     scenarioKind: state.scenarioKind,
+    heroPosition: state.heroPosition,
+    heroId: state.heroId,
     spotLabel: state.spotLabel,
     openAmount: state.openAmount,
     openerId: state.openerId,
@@ -354,10 +401,18 @@ function opponentPostflopContext(opponent, type, extra = {}) {
 }
 
 function startNewHand() {
+  const heroPosition = HERO_POSITIONS[nextHeroPositionIndex % HERO_POSITIONS.length];
+  nextHeroPositionIndex += 1;
   const scenarioRoll = Math.random();
-  const scenarioKind = scenarioRoll < 0.35 ? "limped" : scenarioRoll < 0.78 ? "raised" : "threebet";
-  const heroCards = randomTrainerHeroCards(scenarioKind);
-  const scenario = createSixHandedPracticeScenario({ heroCards, scenarioKind });
+  const scenarioKind = heroPosition === "UTG"
+    ? "unopened"
+    : heroPosition === "HJ"
+      ? "limped"
+      : heroPosition === "BTN"
+        ? (scenarioRoll < 0.35 ? "limped" : scenarioRoll < 0.78 ? "raised" : "threebet")
+        : "raised";
+  const heroCards = randomTrainerHeroCards(scenarioKind, heroPosition);
+  const scenario = createSixHandedPracticeScenario({ heroCards, scenarioKind, heroPosition });
   const hiddenCards = scenario.opponents.flatMap((opponent) => opponent.combo.cards);
   const runout = dealPracticeRunout(heroCards, hiddenCards);
   state = {
@@ -371,6 +426,8 @@ function startNewHand() {
     heroCommitted: scenario.heroCommitted,
     actions: cloneActions(scenario.preflopActions),
     scenarioKind: scenario.kind,
+    heroPosition: scenario.heroPosition,
+    heroId: scenario.heroId,
     spotLabel: scenario.spotLabel,
     openAmount: scenario.openAmount,
     openerId: scenario.openerId,
@@ -447,9 +504,10 @@ function pushHeroDecision(decision) {
 
 function buildPreflopOpenDecision() {
   const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
+  const isUnopened = state.scenarioKind === "unopened";
   const lookup = preflopLookupStrategyForClass({
     preflopSpot: "rfi",
-    heroPosition: "BTN",
+    heroPosition: state.heroPosition,
     villainPosition: "BB",
     stack: 150,
     openSize: 10 / 3,
@@ -459,21 +517,23 @@ function buildPreflopOpenDecision() {
   const strongIsolation = ["AA", "KK", "QQ", "JJ", "TT", "AKs", "AKo", "AQs", "AQo", "AJs", "KQs"].includes(classLabel);
   const acceptable = recommended === "isoSmall" && strongIsolation ? ["isoLarge"] : [];
   const reason = recommended === "fold"
-    ? `${classLabel} is a fold in the repository's 150bb six-max BTN baseline (${Math.round(foldFrequency * 100)}% fold). Wide limpers do not turn a structurally weak hand into a profitable isolation raise.`
-    : `${classLabel} opens in the repository's 150bb six-max BTN baseline (${Math.round(openFrequency * 100)}% raise). Isolating to ${formatMoney(state.smallTarget)} applies the baseline against the fish's wider, weaker limping range.`;
+    ? `${classLabel} is a fold in the repository's 150bb six-max ${state.heroPosition} baseline (${Math.round(foldFrequency * 100)}% fold). ${isUnopened ? "Acting first does not justify opening a structurally weak hand." : "Wide limpers do not turn a structurally weak hand into a profitable isolation raise."}`
+    : `${classLabel} opens in the repository's 150bb six-max ${state.heroPosition} baseline (${Math.round(openFrequency * 100)}% raise). ${isUnopened ? `Raise to ${formatMoney(state.smallTarget)} and let the later fish ranges respond.` : `Isolating to ${formatMoney(state.smallTarget)} applies that baseline against the fish's wider, weaker limping range.`}`;
   return {
     type: "preflop-isolate",
-    title: `You look down at ${classLabel} on the BTN. Isolate the limpers?`,
-    copy: `${state.limperCount} loose-passive player${state.limperCount === 1 ? " has" : "s have"} limped. Other seats have already folded or are waiting in the blinds.`,
+    title: `You look down at ${classLabel} in the ${state.heroPosition}. ${isUnopened ? "Open the action?" : "Isolate the limpers?"}`,
+    copy: isUnopened
+      ? "Action starts with you. The five later seats retain independent recreational-player ranges and will respond to the size you choose."
+      : `${state.limperCount} loose-passive player${state.limperCount === 1 ? " has" : "s have"} limped. Every remaining seat will respond in its real preflop order.`,
     recommended,
     acceptable,
     reason,
     choiceReasons: {
       fold: recommended === "fold"
-        ? `Correct. ${classLabel} is outside the 150bb BTN opening baseline, and position alone does not overcome its poor domination and realization against several sticky players.`
-        : `This is too tight. ${classLabel} clears the 150bb BTN opening baseline, and the limpers arrive with wide, capped ranges that let you isolate for value or initiative.`,
+        ? `Correct. ${classLabel} is outside the 150bb ${state.heroPosition} opening baseline, and its poor domination and realization do not improve merely because the table is recreational.`
+        : `This is too tight. ${classLabel} clears the 150bb ${state.heroPosition} opening baseline${isUnopened ? "." : ", and the limpers arrive with wide, capped ranges that let you isolate for value or initiative."}`,
       isoSmall: recommended === "isoSmall"
-        ? `Correct. ${formatMoney(state.smallTarget)} punishes the wide limps while risking less than the larger size and preserving room to maneuver at 150bb.`
+        ? `Correct. ${formatMoney(state.smallTarget)} ${isUnopened ? "uses the standard live open while preserving room to maneuver at 150bb" : "punishes the wide limps while risking less than the larger size and preserving room to maneuver at 150bb"}.`
         : `This is the main error: it converts a baseline fold into a multiway bluff against players modeled to call too often. Weak hands such as 94o remain folds.`,
       isoLarge: recommended === "fold"
         ? `This compounds the mistake of entering an out-of-range hand by risking even more against inelastic callers.`
@@ -483,7 +543,7 @@ function buildPreflopOpenDecision() {
     },
     basis: {
       title: "150bb six-max baseline + fish-range estimate",
-      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The opponent limps come only from the low-stakes fish model; isolation sizing is a disclosed multiway best-response estimate, not a solved limped-pot equilibrium.`,
+      copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. ${isUnopened ? "The later-seat responses" : "The opponent limps and isolation sizing"} come from the disclosed low-stakes fish model rather than a solved multiway equilibrium.`,
     },
     allInReason: strongIsolation
       ? `The hand is strong enough to isolate, but open-jamming roughly 150bb risks the full stack to win a small limped pot and folds out most dominated hands. Use a normal isolation size and preserve postflop value.`
@@ -491,9 +551,9 @@ function buildPreflopOpenDecision() {
     smallTarget: state.smallTarget,
     largeTarget: state.largeTarget,
     options: [
-      { id: "fold", label: "Fold", detail: "Do not enter the limped pot" },
-      { id: "isoSmall", label: `Raise to ${formatMoney(state.smallTarget)}`, detail: "Baseline isolation size" },
-      { id: "isoLarge", label: `Raise to ${formatMoney(state.largeTarget)}`, detail: "Larger exploit size" },
+      { id: "fold", label: "Fold", detail: isUnopened ? "Pass the first-in opportunity" : "Do not enter the limped pot" },
+      { id: "isoSmall", label: `Raise to ${formatMoney(state.smallTarget)}`, detail: isUnopened ? "Standard live open" : "Baseline isolation size" },
+      { id: "isoLarge", label: `Raise to ${formatMoney(state.largeTarget)}`, detail: isUnopened ? "Larger live open" : "Larger exploit size" },
     ],
   };
 }
@@ -503,7 +563,7 @@ function buildFacingOpenDecision() {
   const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
   const lookup = preflopLookupStrategyForClass({
     preflopSpot: "vs-open",
-    heroPosition: "BTN",
+    heroPosition: state.heroPosition,
     villainPosition: opener.position,
     stack: 150,
     openSize: state.openAmount / 3,
@@ -520,8 +580,8 @@ function buildFacingOpenDecision() {
       : `${classLabel} is strong enough to squeeze for value against the fish opener and wide cold caller. ${formatMoney(state.smallTarget)} keeps worse hands in while charging both ranges.`;
   return {
     type: "preflop-facing-open",
-    title: `You look down at ${classLabel} on the BTN. What is your plan?`,
-    copy: `${opener.position} raised to ${formatMoney(state.openAmount)} and one player called. Both blinds are still waiting to act.`,
+    title: `You look down at ${classLabel} in the ${state.heroPosition}. What is your plan?`,
+    copy: `${opener.position} raised to ${formatMoney(state.openAmount)} and ${state.callerCount} player${state.callerCount === 1 ? "" : "s"} called. Seats after ${state.heroPosition} remain live when the action has not reached them yet.`,
     recommended,
     acceptable,
     reason,
@@ -530,7 +590,7 @@ function buildFacingOpenDecision() {
         ? `Correct. ${classLabel} does not clear the 150bb positional continuation baseline, and a cold caller plus live blinds make its equity harder—not easier—to realize.`
         : `This overfolds. ${classLabel} has enough 150bb positional value to continue against the modeled opener and the caller's much wider range.`,
       callOpen: recommended === "callOpen"
-        ? `Correct. Calling keeps the fish's dominated and speculative hands in, uses your position, and avoids isolating yourself against the opener's premium-heavy continuing range.`
+        ? `Correct. Calling keeps the fish's dominated and speculative hands in and avoids isolating yourself against the opener's premium-heavy continuing range. Your exact position is already reflected in the 150bb baseline.`
         : recommended === "fold"
           ? `This is too loose. The price looks attractive, but ${classLabel} is dominated too often and must realize equity through several players.`
           : `This is playable but too passive for a premium. You miss value from the wide cold caller and let both blinds enter cheaply.`,
@@ -557,7 +617,7 @@ function buildFacingOpenDecision() {
     largeTarget: state.largeTarget,
     options: [
       { id: "fold", label: "Fold", detail: "Leave the raised pot" },
-      { id: "callOpen", label: `Call ${formatMoney(state.openAmount)}`, detail: "Take the price in position" },
+      { id: "callOpen", label: `Call to ${formatMoney(state.openAmount)}`, detail: "Take the positional price" },
       { id: "squeezeSmall", label: `Squeeze to ${formatMoney(state.smallTarget)}`, detail: "Baseline squeeze size" },
       { id: "squeezeLarge", label: `Squeeze to ${formatMoney(state.largeTarget)}`, detail: "Higher-pressure exploit size" },
     ],
@@ -570,7 +630,7 @@ function buildFacingThreeBetDecision() {
   const classLabel = comboClass(state.heroCards[0], state.heroCards[1]);
   const lookup = preflopLookupStrategyForClass({
     preflopSpot: "vs-3bet",
-    heroPosition: "BTN",
+    heroPosition: state.heroPosition,
     villainPosition: threeBettor.position,
     stack: 150,
     openSize: state.openAmount / 3,
@@ -587,7 +647,7 @@ function buildFacingThreeBetDecision() {
       : `${classLabel} is strong enough to 4-bet for value against the modeled HJ/CO response to an UTG open. ${formatMoney(state.smallTarget)} keeps worse continues available while preserving room at 150bb.`;
   return {
     type: "preflop-facing-threebet",
-    title: `You look down at ${classLabel} on the BTN. Face the 3-bet?`,
+    title: `You look down at ${classLabel} in the ${state.heroPosition}. Face the 3-bet?`,
     copy: `${opener.position} opened to ${formatMoney(state.openAmount)} and ${threeBettor.position} 3-bet to ${formatMoney(state.threeBetAmount)}. The original raiser and both blinds are still live.`,
     recommended,
     acceptable,
@@ -647,6 +707,7 @@ function buildAfterCheckDecision() {
   const equity = postflopEquity();
   const allInFraction = state.heroStack / Math.max(1, state.pot);
   const betSizes = availablePostflopBetSizes(state.pot, state.heroStack);
+  const checkedCount = opponentsBeforeHeroPostflop().length;
   const plan = recommendHeroPostflopPlan({
     heroCards: state.heroCards,
     board: state.board,
@@ -656,8 +717,10 @@ function buildAfterCheckDecision() {
   });
   return {
     type: "postflop-after-checks",
-    title: `${activeOpponents().length} opponents check the ${state.street}. What do you do?`,
-    copy: "Choose your multiway exploit before inspecting any opponent's surviving range.",
+    title: checkedCount
+      ? `${checkedCount} opponent${checkedCount === 1 ? "" : "s"} check${checkedCount === 1 ? "s" : ""} to you on the ${state.street}. What do you do?`
+      : `You are first to act on the ${state.street}. What do you do?`,
+    copy: `Hero is in the ${state.heroPosition}. Players after you remain live and will act before the betting round can close.`,
     recommended: plan.recommended,
     acceptable: plan.acceptable,
     reason: plan.reason,
@@ -671,7 +734,7 @@ function buildAfterCheckDecision() {
     allInAcceptable: plan.acceptable.includes("allIn"),
     betSizes,
     options: [
-      { id: "check", label: "Check back", detail: plan.optionDetails.check },
+      { id: "check", label: checkedCount === activeOpponents().length ? "Check back" : "Check", detail: plan.optionDetails.check },
       ...betSizes.map((size) => ({
         id: size.id,
         label: `${size.label} · ${formatMoney(size.amount)}`,
@@ -925,7 +988,7 @@ function applyHeroChoice(decision, choice) {
     }
     if (choice === "callOpen") {
       commitTo("hero", state.openAmount);
-      addAction("Hero", `calls ${formatMoney(state.openAmount)} on the BTN`);
+      addAction("Hero", `calls to ${formatMoney(state.openAmount)} from the ${state.heroPosition}`);
       state.heroStatus = `Called ${formatMoney(state.openAmount)}`;
       blindsRespondToOpen();
       return;
@@ -962,9 +1025,9 @@ function applyHeroChoice(decision, choice) {
 
   if (decision.type === "postflop-after-checks") {
     if (choice === "check") {
-      addAction("Hero", "checks back");
-      state.heroStatus = "Checked back";
-      nextStreetOrShowdown();
+      addAction("Hero", "checks");
+      state.heroStatus = "Checked";
+      opponentsActAfterHeroCheck();
       return;
     }
     const fraction = fractionForBetChoice(choice);
@@ -1034,7 +1097,7 @@ function allInResponseContext(decision, opponent, target, potBefore, heroCommitt
     return {
       type: "preflop-vs-open",
       position: opponent.position,
-      openerPosition: "BTN",
+      openerPosition: state.heroPosition,
       openBb: target / 3,
       priorAction: preflopRoleFor(opponent),
       coldCallerCount: state.limperCount,
@@ -1045,7 +1108,7 @@ function allInResponseContext(decision, opponent, target, potBefore, heroCommitt
     return {
       type: "preflop-vs-threebet",
       position: opponent.position,
-      threeBettorPosition: "BTN",
+      threeBettorPosition: state.heroPosition,
       threeBetBb: target / 3,
       priorAction: preflopRoleFor(opponent),
       openerPosition: opponentById(state.openerId)?.position,
@@ -1057,7 +1120,7 @@ function allInResponseContext(decision, opponent, target, potBefore, heroCommitt
     return {
       type: "preflop-vs-fourbet",
       position: opponent.position,
-      fourBettorPosition: "BTN",
+      fourBettorPosition: state.heroPosition,
       fourBetBb: target / 3,
       priorAction: preflopRoleFor(opponent),
       openerPosition: opponentById(state.openerId)?.position,
@@ -1082,14 +1145,14 @@ function allInResponseContext(decision, opponent, target, potBefore, heroCommitt
       ...base,
       type: "postflop-vs-bet",
       betFraction: wager / Math.max(1, potBefore),
-      bettorPosition: "BTN",
+      bettorPosition: state.heroPosition,
     };
   }
   return {
     ...base,
     type: "postflop-vs-raise",
     raiseFraction: wager / Math.max(1, potBefore),
-    raiserPosition: "BTN",
+    raiserPosition: state.heroPosition,
   };
 }
 
@@ -1139,14 +1202,11 @@ function applyHeroAllIn(decision) {
 }
 
 function opponentsRespondToIsolation(openAmount) {
-  const responseOrder = ["sb", "bb", "utg", "hj", "co"];
-  for (const id of responseOrder) {
-    const opponent = opponentById(id);
-    if (!opponent || opponent.folded) continue;
+  for (const opponent of opponentsInPreflopResponseOrder()) {
     const context = {
       type: "preflop-vs-open",
       position: opponent.position,
-      openerPosition: "BTN",
+      openerPosition: state.heroPosition,
       openBb: openAmount / 3,
       priorAction: preflopRoleFor(opponent),
       coldCallerCount: state.limperCount,
@@ -1177,9 +1237,7 @@ function blindsRespondToOpen() {
     priorAction: "blind",
     coldCallerCount: state.callerCount + 1,
   });
-  for (const id of ["sb", "bb"]) {
-    const opponent = opponentById(id);
-    if (!opponent || opponent.folded) continue;
+  for (const opponent of opponentsAfterHeroPreflop()) {
     const context = contextFor(opponent);
     const action = sampleFishAction(opponent.combo, context);
     if (action === "raise") throw new Error("Curated raised-pot practice produced an unexpected blind 3-bet.");
@@ -1201,15 +1259,13 @@ function opponentsRespondToThreeBet(target) {
   const contextFor = (opponent) => ({
     type: "preflop-vs-threebet",
     position: opponent.position,
-    threeBettorPosition: "BTN",
+    threeBettorPosition: state.heroPosition,
     threeBetBb: target / 3,
     priorAction: preflopRoleFor(opponent),
     openerPosition: opponentById(state.openerId)?.position,
     coldCallerCount: state.callerCount,
   });
-  for (const id of ["sb", "bb", "utg", "hj", "co"]) {
-    const opponent = opponentById(id);
-    if (!opponent || opponent.folded) continue;
+  for (const opponent of opponentsInPreflopResponseOrder()) {
     const context = contextFor(opponent);
     const action = sampleFishAction(opponent.combo, context);
     if (action === "raise") throw new Error("Curated raised-pot practice produced an unexpected 4-bet.");
@@ -1258,13 +1314,11 @@ function opponentsRespondAfterHeroCallsThreeBet() {
 }
 
 function opponentsRespondToFourBet(target) {
-  for (const id of ["sb", "bb", state.openerId, state.threeBettorId]) {
-    const opponent = opponentById(id);
-    if (!opponent || opponent.folded) continue;
+  for (const opponent of opponentsInPreflopResponseOrder()) {
     const context = {
       type: "preflop-vs-fourbet",
       position: opponent.position,
-      fourBettorPosition: "BTN",
+      fourBettorPosition: state.heroPosition,
       fourBetBb: target / 3,
       priorAction: preflopRoleFor(opponent),
       openerPosition: opponentById(state.openerId)?.position,
@@ -1312,7 +1366,7 @@ function startMultiwayStreet() {
   let openingBetFraction = null;
   let aggressionIsRaise = false;
 
-  for (const opponent of opponentsInPostflopOrder()) {
+  for (const opponent of opponentsBeforeHeroPostflop()) {
     if (!aggressor) {
       const context = opponentPostflopContext(opponent, "postflop-multiway-first", {
         inPosition: false,
@@ -1320,7 +1374,7 @@ function startMultiwayStreet() {
         donk: true,
       });
       const decision = fishDecisionForCombo(opponent.combo, context);
-      observeOpponent(opponent, context, decision.action, `${streetLabel(state.street)}: ${opponent.position} ${decision.action}s before the BTN acts.`);
+      observeOpponent(opponent, context, decision.action, `${streetLabel(state.street)}: ${opponent.position} ${decision.action}s before the ${state.heroPosition} acts.`);
       if (decision.action === "check") {
         addAction(opponent.position, "checks");
         opponent.status = "Checked";
@@ -1377,11 +1431,93 @@ function startMultiwayStreet() {
   pushHeroDecision(buildVsFishBetDecision(amountToCall, aggressor.id, aggressorContext));
 }
 
+function opponentsActAfterHeroCheck() {
+  let aggressor = null;
+  let aggressorContext = null;
+  let openingBetFraction = null;
+  let aggressionIsRaise = false;
+  const checkedAfterHero = [];
+
+  const respondToAggression = (opponent) => {
+    const context = aggressionIsRaise
+      ? opponentPostflopContext(opponent, "postflop-vs-raise", {
+        raiseFraction: Math.max(0.15, aggressor.committed / Math.max(1, state.pot - aggressor.committed)),
+        raiserPosition: aggressor.position,
+      })
+      : opponentPostflopContext(opponent, "postflop-vs-bet", {
+        betFraction: openingBetFraction,
+        bettorPosition: aggressor.position,
+      });
+    const action = sampleFishAction(opponent.combo, context);
+    observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing ${aggressor.position}'s bet after you checked.`);
+    if (action === "fold") {
+      opponent.folded = true;
+      opponent.status = "Folded to bet";
+      addAction(opponent.position, `folds to ${aggressor.position}'s bet`);
+    } else if (action === "call") {
+      commitTo(opponent.id, aggressor.committed);
+      opponent.status = `Called ${formatMoney(aggressor.committed)}`;
+      addAction(opponent.position, `calls ${formatMoney(aggressor.committed)}`);
+    } else {
+      const raiseTarget = Math.min(
+        opponent.committed + opponent.stack,
+        Math.max(aggressor.committed * 3, aggressor.committed + state.pot),
+      );
+      commitTo(opponent.id, raiseTarget);
+      opponent.status = `Raised to ${formatMoney(raiseTarget)}`;
+      addAction(opponent.position, `raises to ${formatMoney(raiseTarget)}`);
+      aggressor = opponent;
+      aggressorContext = context;
+      aggressionIsRaise = true;
+    }
+  };
+
+  for (const opponent of opponentsAfterHeroPostflop()) {
+    if (!aggressor) {
+      const context = opponentPostflopContext(opponent, "postflop-multiway-first", {
+        inPosition: true,
+        checkedTo: true,
+        donk: false,
+      });
+      const decision = fishDecisionForCombo(opponent.combo, context);
+      observeOpponent(opponent, context, decision.action, `${streetLabel(state.street)}: ${opponent.position} ${decision.action}s after the ${state.heroPosition} checks.`);
+      if (decision.action === "check") {
+        addAction(opponent.position, "checks");
+        opponent.status = "Checked";
+        checkedAfterHero.push(opponent);
+        continue;
+      }
+      openingBetFraction = decision.betFraction ?? (activeOpponents().length > 1 ? 0.33 : 0.50);
+      const amount = Math.max(1, Math.round(state.pot * openingBetFraction));
+      commit(opponent.id, amount);
+      addAction(opponent.position, `bets ${formatMoney(amount)} (${Math.round(openingBetFraction * 100)}% pot)`);
+      opponent.status = `Bet ${formatMoney(amount)}`;
+      aggressor = opponent;
+      aggressorContext = context;
+      continue;
+    }
+    respondToAggression(opponent);
+  }
+
+  if (!aggressor) {
+    nextStreetOrShowdown();
+    return;
+  }
+  for (const opponent of [...opponentsBeforeHeroPostflop(), ...checkedAfterHero]) {
+    if (opponent.id !== aggressor.id && !opponent.folded) respondToAggression(opponent);
+  }
+  pushHeroDecision(buildVsFishBetDecision(
+    Math.max(0, aggressor.committed - state.heroCommitted),
+    aggressor.id,
+    aggressorContext,
+  ));
+}
+
 function opponentsRespondToBet(amount, fraction) {
   for (const opponent of opponentsInPostflopOrder()) {
     const context = opponentPostflopContext(opponent, "postflop-vs-bet", {
       betFraction: fraction,
-      bettorPosition: "BTN",
+      bettorPosition: state.heroPosition,
     });
     const action = sampleFishAction(opponent.combo, context);
     observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing your ${Math.round(fraction * 100)}% pot bet.`);
@@ -1442,7 +1578,7 @@ function opponentsRespondToHeroRaise(target) {
   for (const opponent of opponentsInPostflopOrder()) {
     const context = opponentPostflopContext(opponent, "postflop-vs-raise", {
       raiseFraction: Math.max(0.15, target / Math.max(1, state.pot - state.heroCommitted)),
-      raiserPosition: "BTN",
+      raiserPosition: state.heroPosition,
     });
     const action = sampleFishAction(opponent.combo, context);
     observeOpponent(opponent, context, action, `${streetLabel(state.street)}: ${opponent.position} ${action}s facing your raise to ${formatMoney(target)}.`);
@@ -1609,7 +1745,7 @@ function fishResponseScenarios(moment, opponent) {
     const contextFor = (target) => ({
       type: "preflop-vs-open",
       position: opponent.position,
-      openerPosition: "BTN",
+      openerPosition: moment.heroPosition,
       openBb: target / 3,
       priorAction: preflopRoleFor(opponent, moment),
       coldCallerCount: moment.limperCount,
@@ -1641,7 +1777,7 @@ function fishResponseScenarios(moment, opponent) {
     const contextFor = (target) => ({
       type: "preflop-vs-threebet",
       position: opponent.position,
-      threeBettorPosition: "BTN",
+      threeBettorPosition: moment.heroPosition,
       threeBetBb: target / 3,
       priorAction: preflopRoleFor(opponent, moment),
       openerPosition: opener?.position,
@@ -1675,7 +1811,7 @@ function fishResponseScenarios(moment, opponent) {
     const contextFor = (target) => ({
       type: "preflop-vs-fourbet",
       position: opponent.position,
-      fourBettorPosition: "BTN",
+      fourBettorPosition: moment.heroPosition,
       fourBetBb: target / 3,
       priorAction: preflopRoleFor(opponent, moment),
       openerPosition: opener?.position,
@@ -2021,6 +2157,7 @@ function revealOpponentRange(moment, opponentId = null) {
 }
 
 function renderCards(moment) {
+  elements.heroPosition.textContent = `You · ${moment.heroPosition}`;
   elements.heroCards.innerHTML = moment.heroCards.map((card) => cardToHtml(card)).join("");
   elements.opponentSeats.innerHTML = moment.opponents.map((opponent) => {
     const cards = opponent.combo

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  HERO_POSITIONS,
   createDeck,
   createFishRange,
   createSixHandedPracticeScenario,
@@ -40,6 +41,39 @@ test("six-handed practice deals five distinct opponents and preserves real blind
   assert.ok(scenario.opponents.every((opponent) => opponent.stack + opponent.committed === 450));
   assert.equal(scenario.startingPot, 6 + scenario.limperCount * 3);
   assert.ok(scenario.opponents.every((opponent) => opponent.range.every((combo) => !("probability" in combo))));
+});
+
+test("practice generates a real six-handed table with Hero in every position", () => {
+  const heroCards = parseCards("As Kd", { exact: 2 });
+  const expectedKinds = {
+    UTG: "unopened",
+    HJ: "limped",
+    CO: "raised",
+    SB: "raised",
+    BB: "raised",
+  };
+
+  for (const [index, heroPosition] of HERO_POSITIONS.entries()) {
+    const scenario = createSixHandedPracticeScenario({
+      heroCards,
+      heroPosition,
+      random: seededRandom(100 + index),
+    });
+    const dealt = [...heroCards, ...scenario.opponents.flatMap((opponent) => opponent.combo.cards)];
+    const tablePositions = [heroPosition, ...scenario.opponents.map((opponent) => opponent.position)];
+
+    assert.equal(scenario.heroPosition, heroPosition);
+    assert.equal(scenario.opponents.length, 5);
+    assert.deepEqual([...tablePositions].sort(), [...HERO_POSITIONS].sort());
+    assert.equal(new Set(dealt).size, dealt.length);
+    assert.equal(
+      scenario.startingPot,
+      scenario.heroCommitted + scenario.opponents.reduce((sum, opponent) => sum + opponent.committed, 0),
+    );
+    assert.equal(scenario.heroStack + scenario.heroCommitted, 450);
+    assert.ok(scenario.opponents.every((opponent) => opponent.stack + opponent.committed === 450));
+    if (expectedKinds[heroPosition]) assert.equal(scenario.kind, expectedKinds[heroPosition]);
+  }
 });
 
 test("both isolation sizings create a genuinely multiway flop without curated premium 3-bets", () => {

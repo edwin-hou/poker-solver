@@ -36,6 +36,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /Street tabs let you rewind the same binary range/);
   assert.match(trainer, /Colors show the modeled fish action—fold, call, or raise/);
   assert.match(trainer, /Play 6-handed practice/);
+  assert.match(trainer, /Hero rotates through UTG, HJ, CO, BTN, SB, and BB/);
+  assert.match(trainer, /id="hero-position"/);
   assert.match(trainer, /Estimate heads-up history/);
   assert.match(trainer, /Heads-up only: it does not model extra players/);
   assert.match(trainer, /not a claimed exact multiway solve/);
@@ -71,6 +73,11 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /trainerTreeChild/);
   assert.match(trainerJs, /preflopLookupStrategyForClass/);
   assert.match(trainerJs, /createSixHandedPracticeScenario/);
+  assert.match(trainerJs, /HERO_POSITIONS/);
+  assert.match(trainerJs, /nextHeroPositionIndex/);
+  assert.match(trainerJs, /opponentsBeforeHeroPostflop/);
+  assert.match(trainerJs, /opponentsActAfterHeroCheck/);
+  assert.match(trainerJs, /multiway-practice\.js\?v=hero-all-positions-v18/);
   assert.match(trainerJs, /estimateHeroMultiwayEquity/);
   assert.match(trainerJs, /preflop-facing-open/);
   assert.match(trainerJs, /preflop-facing-threebet/);
@@ -166,6 +173,10 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(fishModel, /turn raises after prior aggression stay almost pure value/);
 
   assert.match(multiwayPractice, /SIX_HANDED_OPPONENTS/);
+  assert.match(multiwayPractice, /SIX_HANDED_SEATS/);
+  assert.match(multiwayPractice, /HERO_POSITIONS/);
+  assert.match(multiwayPractice, /unopenedHeroPlan/);
+  assert.match(multiwayPractice, /raisedHeroPlan/);
   assert.match(multiwayPractice, /limperCount/);
   assert.match(multiwayPractice, /raisedPlan/);
   assert.match(multiwayPractice, /threeBetPlan/);
