@@ -102,6 +102,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /POSTFLOP_BET_SIZES/);
   assert.match(trainerJs, /availablePostflopBetSizes/);
   assert.match(trainerJs, /formatMoney\(size\.amount\)/);
+  assert.match(trainerJs, /hero-exploit\.js\?v=bet-amounts-overbet-v17/);
+  assert.match(trainerJs, /trainer-sizing\.js\?v=bet-amounts-overbet-v17/);
   assert.match(trainerJs, /POSTFLOP_RAISE_SIZES/);
   assert.match(trainerJs, /function applyHeroAllIn/);
   assert.match(trainerJs, /id: "allIn"/);
