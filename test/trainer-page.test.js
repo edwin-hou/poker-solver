@@ -53,7 +53,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /suits themselves do not cause the decision/);
   assert.match(trainer, /missed big aces peel only small bets/);
   assert.match(trainer, /medium showdown value checks instead of becoming a bluff/);
-  assert.match(trainer, /one-third, half-pot, two-thirds, three-quarter, and pot bets/);
+  assert.match(trainer, /exact chip amount for one-third, half-pot, two-thirds, three-quarter, pot, and 150%-pot overbet branches/);
   assert.match(trainer, /An all-in branch is available at every live hero decision/);
   assert.match(trainer, /position, sizing, dead money, and what that player did earlier/);
   assert.match(trainer, /every exact combo is played from the fish's perspective/);
@@ -100,6 +100,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.doesNotMatch(trainerJs, /elements\.revealRange\.hidden = !answerRevealed/);
   assert.match(trainerJs, /recommendHeroPostflopPlan/);
   assert.match(trainerJs, /POSTFLOP_BET_SIZES/);
+  assert.match(trainerJs, /availablePostflopBetSizes/);
+  assert.match(trainerJs, /formatMoney\(size\.amount\)/);
   assert.match(trainerJs, /POSTFLOP_RAISE_SIZES/);
   assert.match(trainerJs, /function applyHeroAllIn/);
   assert.match(trainerJs, /id: "allIn"/);
@@ -114,12 +116,14 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(heroExploit, /bet50/);
   assert.match(heroExploit, /bet67/);
   assert.match(heroExploit, /bet100/);
+  assert.match(heroExploit, /bet150/);
   assert.match(heroExploit, /allInReason/);
 
   assert.match(trainerSizing, /Bet ⅓ pot/);
   assert.match(trainerSizing, /Bet ½ pot/);
   assert.match(trainerSizing, /Bet ⅔ pot/);
   assert.match(trainerSizing, /Bet pot/);
+  assert.match(trainerSizing, /Overbet 1½× pot/);
   assert.match(trainerSizing, /Raise 2\.5×/);
   assert.match(trainerSizing, /Raise 4×/);
 

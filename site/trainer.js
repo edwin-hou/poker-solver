@@ -3,6 +3,7 @@ import {
   POSTFLOP_BET_SIZES,
   POSTFLOP_RAISE_SIZES,
   analyzeFishHandHistory,
+  availablePostflopBetSizes,
   cardToHtml,
   cardToString,
   cloneFishRange,
@@ -643,6 +644,7 @@ function postflopEquity() {
 function buildAfterCheckDecision() {
   const equity = postflopEquity();
   const allInFraction = state.heroStack / Math.max(1, state.pot);
+  const betSizes = availablePostflopBetSizes(state.pot, state.heroStack);
   const plan = recommendHeroPostflopPlan({
     heroCards: state.heroCards,
     board: state.board,
@@ -665,11 +667,12 @@ function buildAfterCheckDecision() {
     allInReason: plan.choiceReasons.allIn,
     allInDetail: plan.optionDetails.allIn,
     allInAcceptable: plan.acceptable.includes("allIn"),
+    betSizes,
     options: [
       { id: "check", label: "Check back", detail: plan.optionDetails.check },
-      ...POSTFLOP_BET_SIZES.map((size) => ({
+      ...betSizes.map((size) => ({
         id: size.id,
-        label: size.label,
+        label: `${size.label} · ${formatMoney(size.amount)}`,
         detail: plan.optionDetails[size.id],
       })),
     ],
@@ -1700,7 +1703,7 @@ function fishResponseScenarios(moment, opponent) {
 
   if (moment.decision.type === "postflop-after-checks" && !opponent.folded) {
     return [
-      ...POSTFLOP_BET_SIZES.map((size) => ({
+      ...(moment.decision.betSizes ?? POSTFLOP_BET_SIZES).map((size) => ({
         choiceId: size.id,
         label: optionLabel(size.id),
         context: postflopContext("postflop-vs-bet", { betFraction: size.fraction }),
