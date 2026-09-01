@@ -384,6 +384,15 @@ function fishDecision(action, perception, reason, details = {}) {
 function preflopFishDecision(combo, context, action) {
   const perception = fishPerceptionForCombo(combo);
   const openBb = Number(context.openBb ?? context.threeBetBb ?? context.fourBetBb ?? 0);
+  if (context.allIn === true) {
+    return fishDecision(
+      action,
+      perception,
+      action === "call"
+        ? `The fish recognizes ${combo.classLabel} as strong enough to call the 150bb all-in in this exact prior-action context. Only a narrow, deterministic part of the premium fringe survives.`
+        : `Even this sticky recreational profile releases ${combo.classLabel} when the price is the full 150bb stack. The all-in response is much tighter than its ordinary call range.`,
+    );
+  }
   const position = context.position ?? "CO";
   const mixedOpen = ["preflop-unopened", "sixmax-unopened"].includes(context.type)
     && mixedOpenRaiseCount(combo.classLabel, position) > 0;
@@ -717,8 +726,25 @@ function mixedThreeBetCount(classLabel, context) {
   return Math.min(classLabel === "TT" ? 6 : 4, base + deadMoneyBoost + blindStealBoost);
 }
 
+function preflopAllInCallCount(classLabel, context) {
+  const facing = context.type;
+  const counts = facing === "preflop-vs-fourbet"
+    ? { AA: 6, KK: 6, QQ: 3, JJ: 0, AKs: 3, AKo: 5 }
+    : facing === "preflop-vs-threebet"
+      ? { AA: 6, KK: 6, QQ: 4, JJ: 1, AKs: 4, AKo: 6 }
+      : { AA: 6, KK: 6, QQ: 5, JJ: 2, AKs: 4, AKo: 8 };
+  return Number(counts[classLabel] ?? 0);
+}
+
+function preflopAllInAction(combo, context) {
+  return exactComboMixIndex(combo) < preflopAllInCallCount(combo.classLabel, context)
+    ? "call"
+    : "fold";
+}
+
 function onlineFishFacingOpenAction(combo, context) {
   const classLabel = combo.classLabel;
+  if (context.allIn === true) return preflopAllInAction(combo, context);
   const openBb = Number(context.openBb ?? 4);
   const openerPosition = context.openerPosition ?? "CO";
   const position = context.position ?? "BB";
@@ -784,6 +810,7 @@ function mixedPairFourBet(combo, threeBetBb) {
 
 function onlineFishFacingThreeBetAction(combo, context) {
   const classLabel = combo.classLabel;
+  if (context.allIn === true) return preflopAllInAction(combo, context);
   const threeBetBb = Number(context.threeBetBb ?? 16);
   const small = threeBetBb <= 16;
   const veryLarge = threeBetBb >= 20;
@@ -846,7 +873,9 @@ function onlineFishFacingThreeBetAction(combo, context) {
   return coldCalls.includes(classLabel) ? "call" : "fold";
 }
 
-function onlineFishFacingFourBetAction(classLabel, context) {
+function onlineFishFacingFourBetAction(combo, context) {
+  const classLabel = combo.classLabel;
+  if (context.allIn === true) return preflopAllInAction(combo, context);
   const veryLarge = Number(context.fourBetBb ?? 35) >= 40;
   const priorAction = context.priorAction ?? "threebet";
 
@@ -895,7 +924,7 @@ export function fishDecisionForCombo(combo, context = {}) {
     return preflopFishDecision(combo, context, onlineFishFacingThreeBetAction(combo, context));
   }
   if (type === "preflop-vs-fourbet") {
-    return preflopFishDecision(combo, context, onlineFishFacingFourBetAction(combo.classLabel, context));
+    return preflopFishDecision(combo, context, onlineFishFacingFourBetAction(combo, context));
   }
 
   if (type === "preflop-vs-open") {
@@ -1028,6 +1057,9 @@ export function fishDecisionForCombo(combo, context = {}) {
     // raising a small flop bet heads-up; turn raises after earlier aggression,
     // multiway raises, and river raises do not receive generic bluff combos.
     if (features.aggressionTier === "strong") {
+      if (context.allIn === true) {
+        return fishDecision("call", perception, `The fish will not fold ${perception.madeHand} to the shove, but cannot raise an all-in bettor.`, { intent: "value" });
+      }
       if (raisesObviousValue(features, betFraction)) {
         return fishDecision("raise", perception, `The fish sees ${perception.madeHand} as obvious value and raises without looking for a balanced bluff.`, { intent: "value" });
       }
@@ -1035,6 +1067,7 @@ export function fishDecisionForCombo(combo, context = {}) {
     }
 
     const flopSemiBluffRaise = street === "flop"
+      && context.allIn !== true
       && betFraction <= 0.50
       && (isStrongSemiBluff(features) || (headsUp && features.nutFlushDraw));
     if (flopSemiBluffRaise) {
