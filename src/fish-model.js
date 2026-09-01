@@ -431,6 +431,20 @@ function preflopFishDecision(combo, context, action) {
   if (action === "raise") {
     return fishDecision(action, perception, "This looks like obvious value or a straightforward isolation spot, so the fish raises without constructing a balanced range.");
   }
+  if (action === "call" && context.type === "preflop-vs-fourbet") {
+    return fishDecision(
+      action,
+      perception,
+      `After already investing in the pot, the fish focuses on ${perception.madeHand} and the 150bb depth instead of how concentrated a 4-bet range should be. It calls too wide to see a flop, but still does not invent a light 5-bet.`,
+    );
+  }
+  if (action === "call" && context.type === "preflop-vs-threebet") {
+    return fishDecision(
+      action,
+      perception,
+      `The fish is attached to ${perception.madeHand} after entering the pot and treats the 150bb stack as room to outflop the 3-bettor. It stretches to a call instead of finding a disciplined fold or a solver-style bluff 4-bet.`,
+    );
+  }
   if (action === "call" && STICKY_PREFLOP_PREMIUMS.has(combo.classLabel)) {
     return fishDecision(action, perception, "The AK/AQ label is too recognizable to release preflop; the fish calls rather than finding a solver-style bluff reraise.");
   }
@@ -796,6 +810,64 @@ function exactComboMixIndex(combo) {
   return OFFSUIT_MIX_ORDER.indexOf(`${suitIndex(highCard)}${suitIndex(lowCard)}`);
 }
 
+const STICKY_THREE_BET_CALL_COUNTS = Object.freeze({
+  small: Object.freeze({
+    "77": 6, "66": 5, "55": 4, "44": 3,
+    A5s: 4, A4s: 3, A3s: 3, A2s: 2,
+    KJs: 4, QJs: 4, JTs: 4, T9s: 4, "98s": 3, "87s": 2,
+  }),
+  medium: Object.freeze({
+    "77": 5, "66": 4, "55": 3, "44": 2,
+    A5s: 3, A4s: 2, A3s: 2, A2s: 1,
+    KJs: 4, QJs: 3, JTs: 3, T9s: 3, "98s": 2, "87s": 1,
+  }),
+  large: Object.freeze({
+    "99": 6, "88": 4, "77": 2,
+    AJs: 4, A5s: 1, KQs: 4, KJs: 3, QJs: 2, JTs: 1,
+  }),
+});
+
+const STICKY_FOUR_BET_CALL_COUNTS = Object.freeze({
+  standard: Object.freeze({
+    TT: 6, "99": 3, AQo: 8, AJs: 4, KQs: 4, KJs: 3, QJs: 2, JTs: 1,
+  }),
+  large: Object.freeze({
+    TT: 3, "99": 1, AQo: 5, AJs: 2, KQs: 3, KJs: 1,
+  }),
+});
+
+function roleAdjustedMixedCall(combo, counts, priorAction, favoredAction) {
+  const base = Number(counts[combo.classLabel] ?? 0);
+  if (!base) return false;
+  const adjustment = priorAction === favoredAction
+    ? 0
+    : priorAction === "cold-called" || priorAction === "opened"
+      ? 1
+      : 2;
+  return exactComboMixIndex(combo) < Math.max(0, base - adjustment);
+}
+
+function stickyThreeBetCall(combo, context) {
+  const threeBetBb = Number(context.threeBetBb ?? 16);
+  const tier = threeBetBb <= 16 ? "small" : threeBetBb < 20 ? "medium" : "large";
+  return roleAdjustedMixedCall(
+    combo,
+    STICKY_THREE_BET_CALL_COUNTS[tier],
+    context.priorAction ?? "opened",
+    "opened",
+  );
+}
+
+function stickyFourBetCall(combo, context) {
+  const tier = Number(context.fourBetBb ?? 35) >= 40 ? "large" : "standard";
+  return roleAdjustedMixedCall(
+    combo,
+    STICKY_FOUR_BET_CALL_COUNTS[tier],
+    context.priorAction ?? "threebet",
+    "threebet",
+  );
+}
+
 function mixedPairFourBet(combo, threeBetBb) {
   let mixesBySize = 0;
   if (combo.classLabel === "QQ") {
@@ -844,12 +916,13 @@ function onlineFishFacingThreeBetAction(combo, context) {
   // release preflop. This is a call-floor, not an excuse to widen its 4-bets.
   if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
 
-  // This is intentionally narrow and price-sensitive. A fish who has already
-  // entered can get attached to suited Broadway-looking cards versus the
-  // trainer's 16bb squeeze, but the attachment disappears at 18bb+ and never
-  // creates a light 4-bet.
+  // At 150bb, the fish overweights implied odds, its prior investment, pocket
+  // pairs, suited aces, and good-looking connected cards. Marginal classes use
+  // literal combo splits so the range widens without becoming a pure any-two
+  // continue. None of these sticky calls becomes a light 4-bet.
   const voluntarilyEntered = ["opened", "cold-called"].includes(priorAction);
   if (small && voluntarilyEntered && SHINY_SMALL_RERAISE_CONTINUES.has(classLabel)) return "call";
+  if (stickyThreeBetCall(combo, context)) return "call";
 
   if (priorAction === "opened") {
     if (veryLarge) {
@@ -882,6 +955,7 @@ function onlineFishFacingFourBetAction(combo, context) {
   if (priorAction === "threebet") {
     if (["AA", "KK"].includes(classLabel)) return "raise";
     if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
+    if (stickyFourBetCall(combo, context)) return "call";
     const calls = veryLarge
       ? ["QQ", "AKs", "AKo"]
       : ["QQ", "JJ", "AKs", "AKo", "AQs"];
@@ -891,6 +965,7 @@ function onlineFishFacingFourBetAction(combo, context) {
   if (priorAction === "opened") {
     if (classLabel === "AA") return "raise";
     if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
+    if (stickyFourBetCall(combo, context)) return "call";
     const calls = veryLarge
       ? ["KK", "QQ", "AKs"]
       : ["KK", "QQ", "AKs", "AKo"];
@@ -899,6 +974,7 @@ function onlineFishFacingFourBetAction(combo, context) {
 
   if (["AA", "KK"].includes(classLabel)) return "raise";
   if (STICKY_PREFLOP_PREMIUMS.has(classLabel)) return "call";
+  if (stickyFourBetCall(combo, context)) return "call";
   if (!veryLarge && ["QQ", "AKs", "AKo"].includes(classLabel)) return "call";
   if (veryLarge && ["QQ", "AKs"].includes(classLabel)) return "call";
   return "fold";

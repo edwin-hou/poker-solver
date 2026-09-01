@@ -138,8 +138,9 @@ test("low-stakes fish mixes exact QQ/JJ combos while never 4-betting TT or 99", 
   assert.equal(fishActionForCombo(aa, facingFourBet), "raise");
   assert.equal(fishActionForCombo(kk, facingFourBet), "raise");
   assert.equal(fishActionForCombo(qq, facingFourBet), "call");
-  assert.equal(fishActionForCombo(tt, facingFourBet), "fold");
-  assert.equal(fishActionForCombo(nines, facingFourBet), "fold");
+  assert.equal(fishActionForCombo(tt, facingFourBet), "call");
+  assert.equal(prior.filter((combo) => combo.classLabel === "99" && fishActionForCombo(combo, facingFourBet) === "call").length, 3);
+  assert.notEqual(fishActionForCombo(nines, facingFourBet), "raise");
 });
 
 test("recreational first-in raises include mixed trashy favorites without becoming any-two-card opens", () => {
@@ -199,11 +200,14 @@ test("recognizable AK and suited AQ never fold preflop but do not become automat
   }
 });
 
-test("good-looking suited hands widen only the small-reraise continue range", () => {
+test("good-looking suited hands remain sticky at declining exact frequencies versus reraises", () => {
   const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
-  const shiny = ["KJs", "QJs", "JTs"].map((label) => firstClass(prior, label));
+  const shiny = Object.fromEntries(["KJs", "QJs", "JTs"].map((label) => [
+    label,
+    prior.filter((combo) => combo.classLabel === label),
+  ]));
   const offsuit = ["KJo", "QJo"].map((label) => firstClass(prior, label));
-  assert.ok([...shiny, ...offsuit].every(Boolean));
+  assert.ok([...Object.values(shiny).flat(), ...offsuit].every(Boolean));
 
   const smallSqueeze = {
     type: "preflop-vs-threebet",
@@ -223,13 +227,51 @@ test("good-looking suited hands widen only the small-reraise continue range", ()
     priorAction: "threebet",
   };
 
-  for (const combo of shiny) {
-    assert.equal(fishActionForCombo(combo, smallSqueeze), "call");
-    assert.equal(fishActionForCombo(combo, mediumSqueeze), "fold");
-    assert.equal(fishActionForCombo(combo, fourBet), "fold");
-    assert.match(fishDecisionForCombo(combo, smallSqueeze).reason, /suited faces and connected ranks/);
+  const expectedCounts = {
+    KJs: { small: 4, medium: 3, fourBet: 3 },
+    QJs: { small: 4, medium: 2, fourBet: 2 },
+    JTs: { small: 4, medium: 2, fourBet: 1 },
+  };
+  for (const [label, combos] of Object.entries(shiny)) {
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, smallSqueeze) === "call").length, expectedCounts[label].small);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, mediumSqueeze) === "call").length, expectedCounts[label].medium);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, fourBet) === "call").length, expectedCounts[label].fourBet);
   }
+  const calledKingJack = shiny.KJs.find((combo) => fishActionForCombo(combo, fourBet) === "call");
+  assert.match(fishDecisionForCombo(calledKingJack, fourBet).reason, /already investing.*good-looking suited hand/);
   assert.ok(offsuit.every((combo) => fishActionForCombo(combo, smallSqueeze) === "fold"));
+});
+
+test("150bb fish overcalls 3-bets with pairs and suited implied-odds hands without widening 4-bets", () => {
+  const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
+  const context = {
+    type: "preflop-vs-threebet",
+    position: "HJ",
+    threeBettorPosition: "BTN",
+    threeBetBb: 18,
+    priorAction: "opened",
+  };
+  const expectedCalls = { "77": 5, "66": 4, "55": 3, A5s: 3, A4s: 2, T9s: 3, "98s": 2 };
+  for (const [label, count] of Object.entries(expectedCalls)) {
+    const combos = prior.filter((combo) => combo.classLabel === label);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, context) === "call").length, count);
+    assert.ok(combos.every((combo) => fishActionForCombo(combo, context) !== "raise"));
+  }
+});
+
+test("facing a normal 4-bet, the prior 3-bettor calls a sticky but still bounded fringe", () => {
+  const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
+  const normal = { type: "preflop-vs-fourbet", fourBetBb: 35, priorAction: "threebet" };
+  const large = { ...normal, fourBetBb: 42 };
+  const expected = {
+    TT: [6, 3], "99": [3, 1], AQo: [8, 5], AJs: [4, 2], KQs: [4, 3], KJs: [3, 1],
+  };
+  for (const [label, [normalCalls, largeCalls]] of Object.entries(expected)) {
+    const combos = prior.filter((combo) => combo.classLabel === label);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, normal) === "call").length, normalCalls);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, large) === "call").length, largeCalls);
+    assert.ok(combos.every((combo) => fishActionForCombo(combo, normal) !== "raise"));
+  }
 });
 
 test("low-stakes fish reraises react to opener position, dead money, sizing, and prior action", () => {
