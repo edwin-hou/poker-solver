@@ -41,8 +41,11 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /not a claimed exact multiway solve/);
   assert.match(trainer, /value requires worse calls and bluffs require better folds/);
   assert.match(trainer, /Opponent ranges never use solver charts/);
-  assert.match(trainer, /TT\/99 still never 4-bet/);
-  assert.match(trainer, /KJs, QJs, and JTs get one extra call against a small reraise/);
+  assert.match(trainer, /TT\/99 still never become 4-bets/);
+  assert.match(trainer, /calling side is deliberately stickier/);
+  assert.match(trainer, /small pairs, suited aces, suited broadways, and connected hands against 3-bets/);
+  assert.match(trainer, /retain a smaller TT\/99, AQ, and suited-broadway fringe when facing a normal 4-bet/);
+  assert.match(trainer, /full-stack all-in range remains much tighter/);
   assert.match(trainer, /First-in raises now widen from about 9% UTG to 31% BTN/);
   assert.match(trainer, /Low Ax, small pairs such as 22, and hands such as T9s use literal combo splits/);
   assert.match(trainer, /TT and KQs now take occasional size- and position-sensitive 3-bets but remain mostly calls/);
@@ -146,6 +149,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.doesNotMatch(fishModel, /preflopLookupStrategyForClass/);
   assert.match(fishModel, /Never turns TT or 99 into a 4-bet/);
   assert.match(fishModel, /mixedPairFourBet/);
+  assert.match(fishModel, /STICKY_THREE_BET_CALL_COUNTS/);
+  assert.match(fishModel, /STICKY_FOUR_BET_CALL_COUNTS/);
   assert.match(fishModel, /MIXED_OPEN_RAISE_COUNTS/);
   assert.match(fishModel, /mixedThreeBetCount/);
   assert.match(fishModel, /exactComboMixIndex/);
