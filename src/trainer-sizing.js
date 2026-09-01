@@ -4,6 +4,7 @@ export const POSTFLOP_BET_SIZES = Object.freeze([
   Object.freeze({ id: "bet67", fraction: 0.67, label: "Bet ⅔ pot" }),
   Object.freeze({ id: "bet75", fraction: 0.75, label: "Bet ¾ pot" }),
   Object.freeze({ id: "bet100", fraction: 1.00, label: "Bet pot" }),
+  Object.freeze({ id: "bet150", fraction: 1.50, label: "Overbet 1½× pot" }),
 ]);
 
 export const POSTFLOP_RAISE_SIZES = Object.freeze([
@@ -19,6 +20,16 @@ export function heroAllInTarget({ heroCommitted = 0, heroStack = 0 } = {}) {
 export function postflopBetAmount(pot, fraction, heroStack) {
   const wager = Math.max(1, Math.round(Math.max(0, Number(pot) || 0) * Number(fraction)));
   return Math.min(Math.max(0, Number(heroStack) || 0), wager);
+}
+
+export function availablePostflopBetSizes(pot, heroStack) {
+  const stack = Math.max(0, Number(heroStack) || 0);
+  return POSTFLOP_BET_SIZES
+    .map((size) => ({
+      ...size,
+      amount: postflopBetAmount(pot, size.fraction, stack),
+    }))
+    .filter((size) => size.amount > 0 && size.amount < stack);
 }
 
 export function postflopRaiseTarget({
