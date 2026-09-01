@@ -5,6 +5,7 @@ export * from "./hero-exploit.js";
 export * from "./hand-history-range.js";
 export * from "./multiway-practice.js";
 export * from "./trainer-tree.js";
+export * from "./trainer-sizing.js";
 export * from "./solver.js";
 export * from "./postflop-solver.js";
 export * from "./preflop-solver.js";

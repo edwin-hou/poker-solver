@@ -10,6 +10,7 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   const fishModel = await readFile(new URL("../dist/src/fish-model.js", import.meta.url), "utf8");
   const heroExploit = await readFile(new URL("../dist/src/hero-exploit.js", import.meta.url), "utf8");
   const multiwayPractice = await readFile(new URL("../dist/src/multiway-practice.js", import.meta.url), "utf8");
+  const trainerSizing = await readFile(new URL("../dist/src/trainer-sizing.js", import.meta.url), "utf8");
 
   assert.match(solverIndex, /href="trainer\.html"/);
   assert.match(trainer, /<title>Beat Fish · Poker Solver<\/title>/);
@@ -49,6 +50,8 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainer, /suits themselves do not cause the decision/);
   assert.match(trainer, /missed big aces peel only small bets/);
   assert.match(trainer, /medium showdown value checks instead of becoming a bluff/);
+  assert.match(trainer, /one-third, half-pot, two-thirds, three-quarter, and pot bets/);
+  assert.match(trainer, /An all-in branch is available at every live hero decision/);
   assert.match(trainer, /position, sizing, dead money, and what that player did earlier/);
   assert.match(trainer, /every exact combo is played from the fish's perspective/);
   assert.match(trainer, /heads-up donks and checked-to stabs can contain air or strong draws/);
@@ -93,6 +96,11 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
   assert.match(trainerJs, /each opponent's independent range is available from their seat at any time/);
   assert.doesNotMatch(trainerJs, /elements\.revealRange\.hidden = !answerRevealed/);
   assert.match(trainerJs, /recommendHeroPostflopPlan/);
+  assert.match(trainerJs, /POSTFLOP_BET_SIZES/);
+  assert.match(trainerJs, /POSTFLOP_RAISE_SIZES/);
+  assert.match(trainerJs, /function applyHeroAllIn/);
+  assert.match(trainerJs, /id: "allIn"/);
+  assert.match(trainerJs, /actions: \["fold", "call"\]/);
   assert.doesNotMatch(trainerJs, /Thin value \/ cheap pressure/);
   assert.match(trainerJs, /What is wrong with this choice/);
   assert.match(trainerJs, /stack: 150/);
@@ -100,6 +108,17 @@ test("Pages publishes a branchable Beat Fish trainer with action ranges and hand
 
   assert.match(heroExploit, /Betting purpose \+ exact response ranges/);
   assert.match(heroExploit, /Value requires worse calls; a bluff requires better folds/);
+  assert.match(heroExploit, /bet50/);
+  assert.match(heroExploit, /bet67/);
+  assert.match(heroExploit, /bet100/);
+  assert.match(heroExploit, /allInReason/);
+
+  assert.match(trainerSizing, /Bet ⅓ pot/);
+  assert.match(trainerSizing, /Bet ½ pot/);
+  assert.match(trainerSizing, /Bet ⅔ pot/);
+  assert.match(trainerSizing, /Bet pot/);
+  assert.match(trainerSizing, /Raise 2\.5×/);
+  assert.match(trainerSizing, /Raise 4×/);
 
   assert.match(trainerCss, /--range-fold/);
   assert.match(trainerCss, /--range-call/);

@@ -51,6 +51,29 @@ test("preflop fish policy is deterministic with wide calls and value-heavy 3-bet
   assert.ok(called.every((entry) => fishActionForCombo(entry, context) === "call"));
 });
 
+test("a 150bb shove narrows sticky preflop continues to exact premium combos", () => {
+  const prior = createFishRange({ heroCards: parseCards("2c 3d", { exact: 2 }) });
+  const context = {
+    type: "preflop-vs-open",
+    position: "BB",
+    openerPosition: "BTN",
+    openBb: 150,
+    priorAction: "limped",
+    allIn: true,
+  };
+  const expectedCalls = { AA: 6, KK: 6, QQ: 5, JJ: 2, AKs: 4, AKo: 8 };
+  for (const [classLabel, count] of Object.entries(expectedCalls)) {
+    const combos = prior.filter((combo) => combo.classLabel === classLabel);
+    assert.equal(combos.filter((combo) => fishActionForCombo(combo, context) === "call").length, count);
+  }
+  assert.ok(prior.filter((combo) => combo.classLabel === "TT")
+    .every((combo) => fishActionForCombo(combo, context) === "fold"));
+  assert.match(
+    fishDecisionForCombo(firstClass(prior, "AA"), context).reason,
+    /strong enough to call the 150bb all-in/,
+  );
+});
+
 test("loose-passive blinds call 77 instead of manufacturing a light 3-bet", () => {
   const prior = createFishRange({ heroCards: parseCards("As Qd", { exact: 2 }) });
   const sevens = firstClass(prior, "77");

@@ -1,5 +1,7 @@
 import {
   HAND_CLASSES,
+  POSTFLOP_BET_SIZES,
+  POSTFLOP_RAISE_SIZES,
   analyzeFishHandHistory,
   cardToHtml,
   cardToString,
@@ -12,11 +14,15 @@ import {
   estimateHeroMultiwayEquity,
   evaluate7,
   filterFishRange,
+  fractionForBetChoice,
   fishDecisionForCombo,
   addTrainerTreeNode,
   observeFishAction,
   partitionFishRange,
   preflopLookupStrategyForClass,
+  heroAllInTarget,
+  postflopBetAmount,
+  postflopRaiseTarget,
   recommendHeroPostflopPlan,
   sampleFishAction,
   summarizeFishRange,
@@ -394,15 +400,45 @@ function buildPreflopDecision() {
 }
 
 function pushHeroDecision(decision) {
+  const allInTarget = heroAllInTarget(state);
+  const largestOpponentCommitment = activeOpponents().reduce(
+    (largest, opponent) => Math.max(largest, opponent.committed),
+    0,
+  );
+  const callOnly = allInTarget <= largestOpponentCommitment;
+  const allInOption = {
+    id: "allIn",
+    label: callOnly
+      ? `Call all in ${formatMoney(state.heroStack)}`
+      : `All in to ${formatMoney(allInTarget)}`,
+    detail: decision.allInDetail ?? "Commit the entire remaining effective stack",
+  };
+  const preparedDecision = {
+    ...decision,
+    allInTarget,
+    acceptable: [...new Set([
+      ...(decision.acceptable ?? []),
+      ...(decision.allInAcceptable ? ["allIn"] : []),
+    ])],
+    choiceReasons: {
+      ...(decision.choiceReasons ?? {}),
+      allIn: decision.allInReason
+        ?? "The shove is always available for exploration, but it risks the full remaining stack and needs a stronger value or fold-equity case than the ordinary sizes.",
+    },
+    options: [
+      ...decision.options.filter((option) => option.id !== "allIn"),
+      allInOption,
+    ],
+  };
   state.heroStatus = "Decision pending";
   rangeVisible = false;
   elements.rangePanel.hidden = true;
   snapshotMoment({
     kind: "decision",
     kicker: "Your decision",
-    title: decision.title,
-    copy: decision.copy,
-    decision,
+    title: preparedDecision.title,
+    copy: preparedDecision.copy,
+    decision: preparedDecision,
   });
 }
 
@@ -446,6 +482,9 @@ function buildPreflopOpenDecision() {
       title: "150bb six-max baseline + fish-range estimate",
       copy: `${lookup.nodeLabel}. Original deterministic chart approximation: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(openFrequency * 100)}% raise. The opponent limps come only from the low-stakes fish model; isolation sizing is a disclosed multiway best-response estimate, not a solved limped-pot equilibrium.`,
     },
+    allInReason: strongIsolation
+      ? `The hand is strong enough to isolate, but open-jamming roughly 150bb risks the full stack to win a small limped pot and folds out most dominated hands. Use a normal isolation size and preserve postflop value.`
+      : `This is a severe over-risk. A hand that is marginal or folding at the normal isolation sizes does not become profitable by risking the entire 150bb stack into several live ranges.`,
     smallTarget: state.smallTarget,
     largeTarget: state.largeTarget,
     options: [
@@ -505,6 +544,10 @@ function buildFacingOpenDecision() {
       title: "150bb solver baseline + modeled-range best response",
       copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(threeBetFrequency * 100)}% 3-bet. That six-max lookup anchors hand viability; the recommendation then tightens light aggression against the fish's value-heavy open and preserves calls versus its wider weak ranges. This is a transparent multiway estimate, not an exact custom solve.`,
     },
+    allInAcceptable: ["AA", "KK"].includes(classLabel),
+    allInReason: ["AA", "KK"].includes(classLabel)
+      ? `A 150bb shove is defensible as pure value because the fish can still stack off with enough premium hands, but the smaller squeeze is preferred: it keeps QQ/AK and weaker mistakes in more often.`
+      : `Jamming 150bb over one open and a call isolates ${classLabel} against the fish's narrowest stack-off range. The ordinary call or squeeze keeps dominated and speculative mistakes available without risking the full stack.`,
     openerId: state.openerId,
     openAmount: state.openAmount,
     smallTarget: state.smallTarget,
@@ -570,6 +613,10 @@ function buildFacingThreeBetDecision() {
       title: "150bb solver baseline corrected for a contextual fish range",
       copy: `${lookup.nodeLabel}: ${Math.round(foldFrequency * 100)}% fold / ${Math.round(callFrequency * 100)}% call / ${Math.round(fourBetFrequency * 100)}% 4-bet against the lookup's balanced baseline. The recommendation is adjusted for a fish 3-bet range that changes with opener position, sizing, dead money, and prior role. That correction and the multiway cold-call node are disclosed best-response estimates, not an exact custom solve.`,
     },
+    allInAcceptable: ["AA", "KK"].includes(classLabel),
+    allInReason: ["AA", "KK"].includes(classLabel)
+      ? `The 150bb jam is a defensible value branch with ${classLabel}, though the smaller 4-bet is preferred because it gives the fish room to continue with its wider QQ/AK/JJ fringe.`
+      : `This shove turns ${classLabel} into an unnecessarily expensive value bet or bluff against a range already strengthened by an early open and a 3-bet. Calling or using the smaller value 4-bet preserves the weaker part of the fish's range.`,
     openerId: state.openerId,
     threeBettorId: state.threeBettorId,
     threeBetAmount: state.threeBetAmount,
@@ -595,11 +642,13 @@ function postflopEquity() {
 
 function buildAfterCheckDecision() {
   const equity = postflopEquity();
+  const allInFraction = state.heroStack / Math.max(1, state.pot);
   const plan = recommendHeroPostflopPlan({
     heroCards: state.heroCards,
     board: state.board,
     opponentRanges: activeOpponents().map((opponent) => opponent.range),
     showdownEquity: equity,
+    allInFraction,
   });
   return {
     type: "postflop-after-checks",
@@ -613,10 +662,16 @@ function buildAfterCheckDecision() {
     diagnostics: plan.diagnostics,
     choiceReasons: plan.choiceReasons,
     basis: plan.basis,
+    allInReason: plan.choiceReasons.allIn,
+    allInDetail: plan.optionDetails.allIn,
+    allInAcceptable: plan.acceptable.includes("allIn"),
     options: [
       { id: "check", label: "Check back", detail: plan.optionDetails.check },
-      { id: "bet33", label: "Bet ⅓ pot", detail: plan.optionDetails.bet33 },
-      { id: "bet75", label: "Bet ¾ pot", detail: plan.optionDetails.bet75 },
+      ...POSTFLOP_BET_SIZES.map((size) => ({
+        id: size.id,
+        label: size.label,
+        detail: plan.optionDetails[size.id],
+      })),
     ],
   };
 }
@@ -642,6 +697,7 @@ function buildVsRaiseDecision(amountToCall, raiserId) {
   const bluffShare = bluffCombos / Math.max(1, raiser.range.length);
   const extraRespect = state.street === "river" ? 0.08 : bluffShare > 0 ? 0.01 : 0.04;
   const recommended = equity >= potOdds + extraRespect ? "call" : "fold";
+  const shoveIsDefensible = equity >= 0.85 && state.heroStack <= state.pot * 1.5;
   const reason = recommended === "call"
     ? `The raise is still value-heavy, but roughly ${Math.round(bluffShare * 100)}% of its exact combos are modeled bluffs or semi-bluffs. Your estimated ${Math.round(equity * 100)}% equity clears the ${Math.round(potOdds * 100)}% price with the line-specific margin.`
     : `This line contains only about ${Math.round(bluffShare * 100)}% modeled bluffs or semi-bluffs. Your estimated ${Math.round(equity * 100)}% equity does not clear the ${Math.round(potOdds * 100)}% price once that value weight is respected.`;
@@ -663,6 +719,10 @@ function buildVsRaiseDecision(amountToCall, raiserId) {
         ? `Correct. This is not a curiosity call: the sampled range equity clears the exact price after accounting for the ${Math.round(bluffShare * 100)}% bluff/semi-bluff share.`
         : `This is a payoff mistake. The raise range is too value-heavy for your ${Math.round(equity * 100)}% equity to clear the adjusted threshold.`,
     },
+    allInAcceptable: shoveIsDefensible,
+    allInReason: shoveIsDefensible
+      ? `With ${Math.round(equity * 100)}% modeled equity and no more than about 1.5 pots behind, the shove is a defensible value response. Calling remains preferred when it preserves weaker bluffs and overplays.`
+      : `Re-raising all in would fold the raiser's rare bluffs and get action from the strongest part of an already value-heavy range. ${Math.round(equity * 100)}% equity is not enough to turn a profitable call—or a fold—into a stack-off.`,
     basis: {
       title: "Exact pot odds + line-specific bluff share",
       copy: `The price is exact and equity is sampled from every active seat's exact binary range. The raiser's surviving range is ${Math.round(bluffShare * 100)}% bluff/semi-bluff by literal combo count; this is an exploit estimate, not a solved multiway equilibrium.`,
@@ -688,6 +748,16 @@ function buildVsFishBetDecision(amountToCall, bettorId, betContext) {
   const raiseThreshold = multiway ? 0.76 : 0.68;
   const callThreshold = potOdds + (multiway && bluffShare < 0.12 ? 0.05 : 0.01);
   const recommended = equity >= raiseThreshold ? "raise" : equity >= callThreshold ? "call" : "fold";
+  const raiseTargets = Object.fromEntries(POSTFLOP_RAISE_SIZES.map((size) => [
+    size.id,
+    postflopRaiseTarget({
+      heroCommitted: state.heroCommitted,
+      heroStack: state.heroStack,
+      opponentCommitted: bettor.committed,
+      multiplier: size.multiplier,
+    }),
+  ]));
+  const shoveIsDefensible = recommended === "raise" && state.heroStack <= state.pot * 1.5;
   const lineLabel = aggressiveAction === "raise"
     ? "multiway raise"
     : multiway ? "multiway lead" : "heads-up donk";
@@ -697,7 +767,7 @@ function buildVsFishBetDecision(amountToCall, bettorId, betContext) {
     title: `${bettor.position} ${aggressiveAction === "raise" ? "raises" : "bets"} into the field. How do you respond?`,
     copy: `The action is not automatically value: this exact ${lineLabel} is modeled from the board, position, earlier line, and bet size.`,
     recommended,
-    acceptable: recommended === "raise" ? ["call"] : [],
+    acceptable: recommended === "raise" ? ["call", "raiseSmall", "raiseLarge"] : [],
     reason,
     equity,
     amountToCall,
@@ -718,15 +788,32 @@ function buildVsFishBetDecision(amountToCall, bettorId, betContext) {
       raise: recommended === "raise"
         ? `Correct. ${Math.round(equity * 100)}% equity clears the strong-value threshold, so raising is for value—not because the fish can bluff.`
         : "Raising would fold the air you beat and concentrate action in stronger made hands and robust draws; that is reverse value, not protection.",
+      raiseSmall: recommended === "raise"
+        ? "The 2.5× raise is a defensible value size that keeps more pair-and-draw continues in, but gives the stickiest draws a slightly better price than the preferred 3× raise."
+        : "Even the smaller raise folds the air you beat and concentrates action in stronger made hands and draws; call or fold according to the exact range price.",
+      raiseLarge: recommended === "raise"
+        ? "The 4× raise is still value-driven, but it filters out more worse continues than the preferred 3× size and should be reserved for the strongest, least vulnerable value hands."
+        : "The larger raise magnifies the reverse-value problem: worse hands disappear while the fish's strongest continues remain.",
     },
     basis: {
       title: "Exact binary betting range + line-aware population prior",
       copy: `The bettor's threaded range contains ${bluffCombos} bluff/semi-bluff combos out of ${bettor.range.length}. Heads-up donks are allowed more bluffs; multiway donks stay strongly value-weighted.`,
     },
+    raiseTargets,
+    allInAcceptable: shoveIsDefensible,
+    allInReason: shoveIsDefensible
+      ? `With less than roughly 1.5 pots behind and ${Math.round(equity * 100)}% modeled equity, moving all in is a defensible value branch. The 3× raise remains preferred when it keeps more worse hands and draws in.`
+      : `The shove is too polarizing for this hand: it folds the bettor's bluff and marginal-value region while getting called by its strongest made hands and draws. Use an ordinary raise only when the range evidence supports value.`,
     options: [
       { id: "fold", label: "Fold", detail: "Respect a value-heavy lead" },
       { id: "call", label: `Call ${formatMoney(amountToCall)}`, detail: "Realize equity against the whole betting range" },
-      { id: "raise", label: "Raise 3×", detail: "Value only—do not raise merely to learn where you are" },
+      ...POSTFLOP_RAISE_SIZES.map((size) => ({
+        id: size.id,
+        label: `${size.label} to ${formatMoney(raiseTargets[size.id])}`,
+        detail: size.id === "raise"
+          ? "Preferred value raise—never merely to learn where you are"
+          : "Explore how this raise size changes every opponent's exact response",
+      })),
     ],
   };
 }
@@ -804,6 +891,11 @@ function exploreSelectedBranch() {
 }
 
 function applyHeroChoice(decision, choice) {
+  if (choice === "allIn") {
+    applyHeroAllIn(decision);
+    return;
+  }
+
   if (decision.type === "preflop-isolate") {
     if (choice === "fold") {
       addAction("Hero", "folds preflop");
@@ -870,8 +962,9 @@ function applyHeroChoice(decision, choice) {
       nextStreetOrShowdown();
       return;
     }
-    const fraction = choice === "bet75" ? 0.75 : 0.33;
-    const amount = Math.max(1, Math.round(state.pot * fraction));
+    const fraction = fractionForBetChoice(choice);
+    if (fraction === null) throw new Error(`Unknown postflop bet size: ${choice}`);
+    const amount = postflopBetAmount(state.pot, fraction, state.heroStack);
     commit("hero", amount);
     addAction("Hero", `bets ${formatMoney(amount)} (${Math.round(fraction * 100)}% pot)`);
     state.heroStatus = `Bet ${formatMoney(amount)}`;
@@ -907,10 +1000,8 @@ function applyHeroChoice(decision, choice) {
       nextStreetOrShowdown();
       return;
     }
-    const raiseTarget = Math.min(
-      state.heroCommitted + state.heroStack,
-      Math.max(bettor.committed * 3, bettor.committed + decision.amountToCall * 2),
-    );
+    const raiseTarget = decision.raiseTargets?.[choice];
+    if (!Number.isFinite(raiseTarget)) throw new Error(`Unknown postflop raise size: ${choice}`);
     commitTo("hero", raiseTarget);
     addAction("Hero", `raises to ${formatMoney(raiseTarget)}`);
     state.heroStatus = `Raised to ${formatMoney(raiseTarget)}`;
@@ -931,6 +1022,115 @@ function applyHeroChoice(decision, choice) {
     state.heroStatus = "Called raise";
     nextStreetOrShowdown();
   }
+}
+
+function allInResponseContext(decision, opponent, target, potBefore, heroCommittedBefore) {
+  if (decision.type === "preflop-isolate") {
+    return {
+      type: "preflop-vs-open",
+      position: opponent.position,
+      openerPosition: "BTN",
+      openBb: target / 3,
+      priorAction: preflopRoleFor(opponent),
+      coldCallerCount: state.limperCount,
+      allIn: true,
+    };
+  }
+  if (decision.type === "preflop-facing-open") {
+    return {
+      type: "preflop-vs-threebet",
+      position: opponent.position,
+      threeBettorPosition: "BTN",
+      threeBetBb: target / 3,
+      priorAction: preflopRoleFor(opponent),
+      openerPosition: opponentById(state.openerId)?.position,
+      coldCallerCount: state.callerCount,
+      allIn: true,
+    };
+  }
+  if (decision.type === "preflop-facing-threebet") {
+    return {
+      type: "preflop-vs-fourbet",
+      position: opponent.position,
+      fourBettorPosition: "BTN",
+      fourBetBb: target / 3,
+      priorAction: preflopRoleFor(opponent),
+      openerPosition: opponentById(state.openerId)?.position,
+      threeBettorPosition: opponentById(state.threeBettorId)?.position,
+      allIn: true,
+    };
+  }
+  const wager = Math.max(0, target - heroCommittedBefore);
+  const previousStreetEntry = [...(opponent.postflopLine ?? [])]
+    .reverse()
+    .find((entry) => entry.street !== state.street) ?? null;
+  const base = {
+    board: state.board,
+    opponentCount: activeOpponents().length,
+    headsUp: activeOpponents().length === 1,
+    previousFishAction: previousStreetEntry?.action ?? null,
+    wasPreflopAggressor: [state.openerId, state.threeBettorId].includes(opponent.id),
+    allIn: true,
+  };
+  if (decision.type === "postflop-after-checks") {
+    return {
+      ...base,
+      type: "postflop-vs-bet",
+      betFraction: wager / Math.max(1, potBefore),
+      bettorPosition: "BTN",
+    };
+  }
+  return {
+    ...base,
+    type: "postflop-vs-raise",
+    raiseFraction: wager / Math.max(1, potBefore),
+    raiserPosition: "BTN",
+  };
+}
+
+function applyHeroAllIn(decision) {
+  const target = heroAllInTarget(state);
+  const potBefore = state.pot;
+  const heroCommittedBefore = state.heroCommitted;
+  const largestOpponentCommitment = activeOpponents().reduce(
+    (largest, opponent) => Math.max(largest, opponent.committed),
+    0,
+  );
+  const isRaise = target > largestOpponentCommitment;
+  const paid = commitTo("hero", target);
+  addAction("Hero", isRaise
+    ? `moves all in to ${formatMoney(target)}`
+    : `calls all in for ${formatMoney(paid)}`);
+  state.heroStatus = isRaise ? `All in to ${formatMoney(target)}` : `Called all in ${formatMoney(paid)}`;
+
+  if (isRaise) {
+    for (const opponent of opponentsInPostflopOrder()) {
+      const context = allInResponseContext(decision, opponent, target, potBefore, heroCommittedBefore);
+      const modeledAction = sampleFishAction(opponent.combo, context);
+      const action = modeledAction === "fold" ? "fold" : "call";
+      observeOpponent(
+        opponent,
+        context,
+        action,
+        `${streetLabel(state.street)}: ${opponent.position} ${action}s facing your all-in to ${formatMoney(target)}.`,
+      );
+      if (action === "fold") {
+        opponent.folded = true;
+        opponent.status = "Folded to all in";
+        addAction(opponent.position, "folds to the all in");
+      } else {
+        commitTo(opponent.id, target);
+        opponent.status = `Called all in to ${formatMoney(opponent.committed)}`;
+        addAction(opponent.position, `calls all in to ${formatMoney(opponent.committed)}`);
+      }
+    }
+  }
+
+  if (!activeOpponents().length) {
+    finishHand("Every opponent folded to your all-in.", false);
+    return;
+  }
+  finishHand("The remaining players are all in and the board runs out.", true);
 }
 
 function opponentsRespondToIsolation(openAmount) {
@@ -1422,6 +1622,12 @@ function fishResponseScenarios(moment, opponent) {
         context: contextFor(moment.decision.largeTarget),
         actions: [...RANGE_ACTIONS],
       },
+      {
+        choiceId: "allIn",
+        label: optionLabel("allIn"),
+        context: { ...contextFor(moment.decision.allInTarget), allIn: true },
+        actions: ["fold", "call"],
+      },
     ];
   }
 
@@ -1448,6 +1654,12 @@ function fishResponseScenarios(moment, opponent) {
         label: optionLabel("squeezeLarge"),
         context: contextFor(moment.decision.largeTarget),
         actions: [...RANGE_ACTIONS],
+      },
+      {
+        choiceId: "allIn",
+        label: optionLabel("allIn"),
+        context: { ...contextFor(moment.decision.allInTarget), allIn: true },
+        actions: ["fold", "call"],
       },
     ];
   }
@@ -1477,22 +1689,31 @@ function fishResponseScenarios(moment, opponent) {
         context: contextFor(moment.decision.largeTarget),
         actions: [...RANGE_ACTIONS],
       },
+      {
+        choiceId: "allIn",
+        label: optionLabel("allIn"),
+        context: { ...contextFor(moment.decision.allInTarget), allIn: true },
+        actions: ["fold", "call"],
+      },
     ];
   }
 
   if (moment.decision.type === "postflop-after-checks" && !opponent.folded) {
     return [
-      {
-        choiceId: "bet33",
-        label: optionLabel("bet33"),
-        context: postflopContext("postflop-vs-bet", { betFraction: 0.33 }),
+      ...POSTFLOP_BET_SIZES.map((size) => ({
+        choiceId: size.id,
+        label: optionLabel(size.id),
+        context: postflopContext("postflop-vs-bet", { betFraction: size.fraction }),
         actions: [...RANGE_ACTIONS],
-      },
+      })),
       {
-        choiceId: "bet75",
-        label: optionLabel("bet75"),
-        context: postflopContext("postflop-vs-bet", { betFraction: 0.75 }),
-        actions: [...RANGE_ACTIONS],
+        choiceId: "allIn",
+        label: optionLabel("allIn"),
+        context: postflopContext("postflop-vs-bet", {
+          betFraction: moment.heroStack / Math.max(1, moment.pot),
+          allIn: true,
+        }),
+        actions: ["fold", "call"],
       },
     ];
   }
@@ -1507,11 +1728,49 @@ function fishResponseScenarios(moment, opponent) {
         actions: [moment.decision.aggressiveAction],
       });
     }
+    const heroCommitted = Number(moment.stateBefore?.heroCommitted ?? 0);
+    for (const size of POSTFLOP_RAISE_SIZES) {
+      const target = moment.decision.raiseTargets?.[size.id];
+      scenarios.push({
+        choiceId: size.id,
+        label: optionLabel(size.id),
+        context: postflopContext("postflop-vs-raise", {
+          raiseFraction: Math.max(0, target - heroCommitted) / Math.max(1, moment.pot),
+        }),
+        actions: [...RANGE_ACTIONS],
+      });
+    }
     scenarios.push({
-      choiceId: "raise",
-      label: optionLabel("raise"),
-      context: postflopContext("postflop-vs-raise", { raiseFraction: 1 }),
-      actions: [...RANGE_ACTIONS],
+      choiceId: "allIn",
+      label: optionLabel("allIn"),
+      context: postflopContext("postflop-vs-raise", {
+        raiseFraction: Math.max(0, moment.decision.allInTarget - heroCommitted) / Math.max(1, moment.pot),
+        allIn: true,
+      }),
+      actions: ["fold", "call"],
+    });
+    return scenarios;
+  }
+
+  if (moment.decision.type === "postflop-vs-raise" && !opponent.folded) {
+    const scenarios = [];
+    if (opponent.id === moment.decision.raiserId) {
+      scenarios.push({
+        choiceId: "observed",
+        label: "Observed raise",
+        context: opponent.postflopLine?.at(-1)?.context
+          ?? postflopContext("postflop-vs-raise", { raiseFraction: 1 }),
+        actions: ["raise"],
+      });
+    }
+    scenarios.push({
+      choiceId: "allIn",
+      label: optionLabel("allIn"),
+      context: postflopContext("postflop-vs-raise", {
+        raiseFraction: moment.heroStack / Math.max(1, moment.pot),
+        allIn: true,
+      }),
+      actions: ["fold", "call"],
     });
     return scenarios;
   }
